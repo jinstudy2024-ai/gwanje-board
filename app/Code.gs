@@ -34,6 +34,12 @@
 var TZ = 'Asia/Seoul';
 
 // ---------- 탭 이름 ----------
+// ---------- 앱 버전 ----------
+// 이 값은 "코드와 함께 사본으로 따라가는" 버전 표시다. 사본을 받은 사람은 화면 오른쪽 위에서
+// 자기 버전을 확인하고, 저장소의 CHANGELOG.md 와 비교해 최신인지 알 수 있다.
+// ⚠ 코드를 고쳐 배포할 때마다 이 값과 CHANGELOG.md 를 같이 올릴 것. (test/run_tests.js 가 일치를 검사한다)
+var APP_VERSION = '1.2';
+
 var SHEET_CFG   = '설정';
 var SHEET_LOCK  = '잠금';
 var SHEET_BOARD = '보드';
@@ -362,7 +368,8 @@ function route_(p) {
       guide_save: saveGuide,
       prompt: agentPrompt,
       discuss_add: discussAdd,
-      discuss_list: discussList
+      discuss_list: discussList,
+      version: getVersion
     };
     var fn = handlers[action];
     if (!fn) return { ok: false, error: 'unknown_action', action: action, actions: Object.keys(handlers) };
@@ -446,6 +453,7 @@ function getState(p) {
     .map(cardOut_);
   return {
     ok: true,
+    version: APP_VERSION,
     now: fmt_(now_()),
     project: project || '(전체)',
     turn: str_(cfg['현재차례']),
@@ -455,6 +463,11 @@ function getState(p) {
     projects: split_(cfg['프로젝트목록']),
     defaultMinutes: num_(cfg['기본만료분'], 120)
   };
+}
+
+/** action=version — 이 사본이 몇 버전인지. 데이터를 건드리지 않는다 */
+function getVersion(p) {
+  return { ok: true, version: APP_VERSION };
 }
 
 /** action=claim — 자원 잠그기. 남이 잡고 있으면 거부(locked). 본인이 다시 잡으면 연장 */

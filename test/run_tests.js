@@ -240,6 +240,40 @@ test('11. seedExampleData — 빈 시트에만, 재실행 시 거부', () => {
   ok(fresh.logs.length > 0, 'Logger 출력 있음');
 });
 
+test('12. 버전 — status·version 액션에 노출, CHANGELOG 맨 위와 일치', () => {
+  const s = call('status', {});
+  ok(/^[0-9]+\.[0-9]+$/.test(s.version), 'status 에 버전 노출: ' + s.version);
+  const v = call('version', {});
+  eq(v.ok, true, 'version 액션 ok');
+  eq(v.version, s.version, 'status 와 version 액션 값이 같음');
+  const ch = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8');
+  const m = ch.match(/^##\s*([0-9]+\.[0-9]+)/m);
+  ok(!!m, 'CHANGELOG.md 에 버전 머리글이 있음');
+  eq(m && m[1], s.version, 'CHANGELOG 맨 위 번호 = APP_VERSION (올릴 때 같이 올렸는가)');
+});
+
+test('13. Index.html — 화면 스크립트 문법 · 버전 배선', () => {
+  // 화면(HTML)은 구글 서버에서만 도니 동작까지는 못 본다. 대신 두 가지는 여기서 잡는다:
+  //  (1) 스크립트 문법 오류  (2) 서버 값이 화면 상태로 옮겨지지 않는 '배선 누락'
+  //  — 실제로 S.version = r.version 을 빠뜨려 버전이 안 찍힌 적이 있다.
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'Index.html'), 'utf8');
+  const blocks = html.match(/<script>[\s\S]*?<\/script>/g) || [];
+  ok(blocks.length > 0, '<script> 블록이 있음');
+  const js = blocks.join('\n')
+    .replace(/<script>|<\/script>/g, '')
+    .replace(/<\?[\s\S]*?\?>/g, 'null');   // Apps Script 템플릿 태그 치환
+  let syntaxErr = null;
+  try { new vm.Script(js, { filename: 'Index.html<script>' }); } catch (e) { syntaxErr = e.message; }
+  ok(syntaxErr === null, '화면 스크립트 문법 오류: ' + syntaxErr);
+
+  // status 응답에서 화면 상태로 옮기는 값들이 실제로 배선돼 있는가
+  ['actors', 'projects', 'turn', 'locks', 'now', 'version'].forEach(function (k) {
+    ok(new RegExp('S\\.' + k + '\\s*=\\s*r\\.' + k).test(js), 'S.' + k + ' = r.' + k + ' 배선');
+  });
+  ok(/id="verLabel"/.test(html), 'verLabel 자리가 화면에 있음');
+  ok(/verLabel'\)\.textContent/.test(js), 'verLabel 에 값을 그리는 코드가 있음');
+});
+
 // ---- 결과 출력 ----
 let totalPass = 0, totalFail = 0;
 console.log('\n=== Code.gs 테스트 결과 ===');

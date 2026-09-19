@@ -119,6 +119,7 @@
   <button class="btn small" id="refreshBtn">새로고침</button>
   <span id="busy"></span>
   <span class="muted" id="nowLabel"></span>
+  <span class="muted" id="verLabel" title="이 사본의 앱 버전. 저장소의 CHANGELOG.md 와 비교하세요"></span>
 </header>
 <nav>
   <button data-tab="lock" class="on">🚦 신호등</button>
@@ -262,7 +263,7 @@
 // ============================================================
 // 토큰은 서버 템플릿이 JSON 문자열로 넣는다(HTML 이스케이프 아님 — 따옴표·& 가 든 토큰도 안전)
 var TOKEN = <?!= JSON.stringify(token).replace(/</g, '\\u003c') ?>;
-var S = { project: '', me: '', actors: [], projects: [], turn: '', defaultMinutes: 120, locks: [], cards: [], guides: [], discussions: [], discussionTopics: [], discussionSelectedTopic: '', now: '' };
+var S = { project: '', me: '', actors: [], projects: [], turn: '', defaultMinutes: 120, locks: [], cards: [], guides: [], discussions: [], discussionTopics: [], discussionSelectedTopic: '', now: '', version: '' };
 var busyCount = 0;
 var discussionLoadSeq = 0;
 var discussionPollTimer = null;
@@ -362,7 +363,7 @@ function showTab(name) {
 async function refreshStatus() {
   var r = await api('status', { project: S.project });
   if (!r.ok) return;
-  S.actors = r.actors; S.projects = r.projects; S.turn = r.turn; S.locks = r.locks; S.defaultMinutes = r.defaultMinutes; S.now = r.now;
+  S.actors = r.actors; S.projects = r.projects; S.turn = r.turn; S.locks = r.locks; S.defaultMinutes = r.defaultMinutes; S.now = r.now; S.version = r.version;
   // 프로젝트·나 선택 목록 갱신
   if (S.projects.indexOf(S.project) < 0) { S.project = S.projects[0] || ''; save('project', S.project); }
   if (S.me && S.actors.indexOf(S.me) < 0) { S.me = ''; save('me', ''); }
@@ -373,6 +374,7 @@ async function refreshStatus() {
   fillSelect($('logActorSel'), S.actors, $('logActorSel').value, '전체');
   $('turnBadge').textContent = '🟢 지금 차례: ' + (S.turn || '-');
   $('nowLabel').textContent = S.now;
+  $('verLabel').textContent = S.version ? ('v' + S.version) : '';
   if (!$('minInput').value) $('minInput').value = S.defaultMinutes;
   if (r.project !== S.project && S.project) { refreshStatus(); return; } // 프로젝트가 바뀌어 다시 조회
   renderLocks();

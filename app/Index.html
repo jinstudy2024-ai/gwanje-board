@@ -122,39 +122,44 @@
   <span class="muted" id="verLabel" title="이 사본의 앱 버전. 저장소의 CHANGELOG.md 와 비교하세요"></span>
 </header>
 <nav>
-  <button data-tab="lock" class="on">🚦 신호등</button>
-  <button data-tab="board">🗂 작업보드</button>
-  <button data-tab="log">📜 작업일지</button>
+  <!-- 탭 순서 = 일하는 순서: 정한다(토론) → 나눈다(작업보드) → 잡는다(신호등) → 남는다(일지) → 규칙(지시문).
+       단, 처음 열 때 보이는 화면은 신호등이다(매일 쓰는 안전 확인 화면이라서). -->
   <button data-tab="discuss">💬 토론</button>
+  <button data-tab="board">🗂 작업보드</button>
+  <button data-tab="lock" class="on">🚦 신호등</button>
+  <button data-tab="log">📜 작업일지</button>
   <button data-tab="guide">📚 지시문</button>
 </nav>
 </div>
 
 <main>
-  <!-- ================= 신호등 ================= -->
-  <section id="tab-lock" class="on">
-    <div class="card">
-      <h3>자원 잡기</h3>
+
+  <!-- ================= 토론 ================= -->
+  <section id="tab-discuss">
+    <div class="card discussion-compose">
+      <h3>주제와 의견</h3>
       <div class="row">
-        <input id="resInput" class="grow" placeholder="자원 (파일 경로·폴더·시트탭·논리자원 …)" autocomplete="off">
-        <input id="memoInput" class="grow" placeholder="메모 한 줄 (선택)">
-        <input id="minInput" type="number" min="5" step="5" style="width:90px" title="만료(분)">
-        <button class="btn primary" id="claimBtn">잡기</button>
+        <input id="discussTopicInput" class="grow" list="discussTopicOptions" placeholder="새 주제를 입력하거나 기존 주제를 선택하세요" autocomplete="off">
+        <datalist id="discussTopicOptions"></datalist>
+        <button class="btn" id="discussTopicBtn" aria-expanded="false" aria-controls="discussTopicMenu">주제 보기</button>
       </div>
-      <div class="hint muted" id="claimHint"></div>
-    </div>
-
-    <h2>잡힌 자원 <span class="muted" id="lockCount"></span></h2>
-    <div id="lockList"></div>
-
-    <div class="card" style="margin-top:14px">
-      <h3>차례 넘기기</h3>
-      <div class="row">
-        <select id="turnSel"></select>
-        <button class="btn" id="turnBtn">차례 넘기기</button>
-        <span class="muted">차례는 안내용. 실제 충돌을 막는 건 잠금.</span>
+      <div class="discussion-topic-menu" id="discussTopicMenu" hidden></div>
+      <div class="muted" style="margin:7px 0 4px">작성자: <b id="discussActor">상단의 ‘나는’에서 선택</b></div>
+      <textarea id="discussTextInput" placeholder="이 주제에 남길 의견을 쓰세요"></textarea>
+      <div class="row" style="justify-content:space-between;margin-top:7px">
+        <span class="muted">실시간 채팅이 아니라, 글을 남기고 답글로 이어가는 공간입니다.</span>
+        <button class="btn primary" id="discussPostBtn">올리기</button>
       </div>
     </div>
+
+    <div class="row" style="justify-content:space-between;margin:12px 0 8px">
+      <h2 id="discussHeading" style="margin:0">글 목록</h2>
+      <div class="row">
+        <span class="muted" id="discussCount"></span>
+        <button class="btn small" id="discussRefresh">새로고침</button>
+      </div>
+    </div>
+    <div id="discussList" aria-live="polite"><div class="card muted">주제를 불러오는 중…</div></div>
   </section>
 
   <!-- ================= 작업보드 ================= -->
@@ -183,6 +188,32 @@
     </div>
   </section>
 
+  <!-- ================= 신호등 ================= -->
+  <section id="tab-lock" class="on">
+    <div class="card">
+      <h3>자원 잡기</h3>
+      <div class="row">
+        <input id="resInput" class="grow" placeholder="자원 (파일 경로·폴더·시트탭·논리자원 …)" autocomplete="off">
+        <input id="memoInput" class="grow" placeholder="메모 한 줄 (선택)">
+        <input id="minInput" type="number" min="5" step="5" style="width:90px" title="만료(분)">
+        <button class="btn primary" id="claimBtn">잡기</button>
+      </div>
+      <div class="hint muted" id="claimHint"></div>
+    </div>
+
+    <h2>잡힌 자원 <span class="muted" id="lockCount"></span></h2>
+    <div id="lockList"></div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>차례 넘기기</h3>
+      <div class="row">
+        <select id="turnSel"></select>
+        <button class="btn" id="turnBtn">차례 넘기기</button>
+        <span class="muted">차례는 안내용. 실제 충돌을 막는 건 잠금.</span>
+      </div>
+    </div>
+  </section>
+
   <!-- ================= 작업일지 ================= -->
   <section id="tab-log">
     <div class="card">
@@ -203,34 +234,6 @@
         <tbody id="logBody"></tbody>
       </table>
     </div>
-  </section>
-
-  <!-- ================= 토론 ================= -->
-  <section id="tab-discuss">
-    <div class="card discussion-compose">
-      <h3>주제와 의견</h3>
-      <div class="row">
-        <input id="discussTopicInput" class="grow" list="discussTopicOptions" placeholder="새 주제를 입력하거나 기존 주제를 선택하세요" autocomplete="off">
-        <datalist id="discussTopicOptions"></datalist>
-        <button class="btn" id="discussTopicBtn" aria-expanded="false" aria-controls="discussTopicMenu">주제 보기</button>
-      </div>
-      <div class="discussion-topic-menu" id="discussTopicMenu" hidden></div>
-      <div class="muted" style="margin:7px 0 4px">작성자: <b id="discussActor">상단의 ‘나는’에서 선택</b></div>
-      <textarea id="discussTextInput" placeholder="이 주제에 남길 의견을 쓰세요"></textarea>
-      <div class="row" style="justify-content:space-between;margin-top:7px">
-        <span class="muted">실시간 채팅이 아니라, 글을 남기고 답글로 이어가는 공간입니다.</span>
-        <button class="btn primary" id="discussPostBtn">올리기</button>
-      </div>
-    </div>
-
-    <div class="row" style="justify-content:space-between;margin:12px 0 8px">
-      <h2 id="discussHeading" style="margin:0">글 목록</h2>
-      <div class="row">
-        <span class="muted" id="discussCount"></span>
-        <button class="btn small" id="discussRefresh">새로고침</button>
-      </div>
-    </div>
-    <div id="discussList" aria-live="polite"><div class="card muted">주제를 불러오는 중…</div></div>
   </section>
 
   <!-- ================= 지시문보관함 ================= -->

@@ -38,7 +38,7 @@ var TZ = 'Asia/Seoul';
 // 이 값은 "코드와 함께 사본으로 따라가는" 버전 표시다. 사본을 받은 사람은 화면 오른쪽 위에서
 // 자기 버전을 확인하고, 저장소의 CHANGELOG.md 와 비교해 최신인지 알 수 있다.
 // ⚠ 코드를 고쳐 배포할 때마다 이 값과 CHANGELOG.md 를 같이 올릴 것. (test/run_tests.js 가 일치를 검사한다)
-var APP_VERSION = '1.2';
+var APP_VERSION = '1.3';
 
 var SHEET_CFG   = '설정';
 var SHEET_LOCK  = '잠금';

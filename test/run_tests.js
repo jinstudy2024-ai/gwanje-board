@@ -270,6 +270,14 @@ test('13. Index.html — 화면 스크립트 문법 · 버전 배선', () => {
   ['actors', 'projects', 'turn', 'locks', 'now', 'version'].forEach(function (k) {
     ok(new RegExp('S\\.' + k + '\\s*=\\s*r\\.' + k).test(js), 'S.' + k + ' = r.' + k + ' 배선');
   });
+  // 탭: 순서(= 일하는 순서)와 짝 맞음
+  const tabs = (html.match(/data-tab="([a-z]+)"/g) || []).map(s => s.replace(/\D/g, '') || s.match(/"([a-z]+)"/)[1]);
+  eq(tabs, ['discuss', 'board', 'lock', 'log', 'guide'], '탭 순서 = 토론·작업보드·신호등·작업일지·지시문');
+  tabs.forEach(function (k) {
+    ok(new RegExp('<section id="tab-' + k + '"').test(html), 'tab-' + k + ' 구역이 있음');
+  });
+  ok(/data-tab="lock" class="on"/.test(html), '처음 열 때 보이는 화면은 신호등');
+
   ok(/id="verLabel"/.test(html), 'verLabel 자리가 화면에 있음');
   ok(/verLabel'\)\.textContent/.test(js), 'verLabel 에 값을 그리는 코드가 있음');
 });

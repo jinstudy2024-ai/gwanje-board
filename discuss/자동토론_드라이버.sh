@@ -134,20 +134,31 @@ EOF
 }
 
 run_agent () {   # $1=cli $2=model $3=effort $4=extra $5=readcmd
+  # 설정의 "실행인자"(extra) 는 모든 CLI에 적용된다. 프롬프트는 언제나 맨 마지막 인자.
   local cli="$1" model="$2" effort="$3" extra="$4" read="$5"
+  local a=()
   case "$cli" in
     claude)
-      if [ -n "$model" ]; then claude -p "$read" --model "$model" --dangerously-skip-permissions
-      else                     claude -p "$read" --dangerously-skip-permissions; fi ;;
+      a=(-p "$read" --dangerously-skip-permissions)
+      [ -n "$model" ] && a+=(--model "$model")
+      [ -n "$extra" ] && a+=($extra)
+      claude "${a[@]}" ;;
     codex)
-      local a=(exec --dangerously-bypass-approvals-and-sandbox)
+      a=(exec --dangerously-bypass-approvals-and-sandbox)
       [ -n "$model" ]  && a+=(-m "$model")
       [ -n "$effort" ] && a+=(-c "model_reasoning_effort=$effort")
-      codex "${a[@]}" "$read" ;;
+      [ -n "$extra" ]  && a+=($extra)
+      a+=("$read")
+      codex "${a[@]}" ;;
     hermes)
-      hermes --yolo -z "$read" ;;
+      a=(--yolo -z)
+      [ -n "$extra" ] && a+=($extra)
+      a+=("$read")
+      hermes "${a[@]}" ;;
     *)
-      if [ -n "$extra" ]; then $cli $extra "$read"; else $cli "$read"; fi ;;
+      [ -n "$extra" ] && a+=($extra)
+      a+=("$read")
+      "$cli" "${a[@]}" ;;
   esac
 }
 

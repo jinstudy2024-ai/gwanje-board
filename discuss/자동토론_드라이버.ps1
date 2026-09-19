@@ -114,24 +114,28 @@ $addUrl&text=TEXT_HERE
 }
 
 function Invoke-Agent($p, $readCmd) {
+  # 설정의 "실행인자" 는 모든 CLI에 적용된다. 프롬프트는 언제나 맨 마지막 인자.
+  $extra = @(); if ($p.실행인자) { $extra = @($p.실행인자) }
   switch ($p.cli) {
     "claude" {
       $a = @("-p", $readCmd, "--dangerously-skip-permissions")
       if ($p.모델) { $a += @("--model", $p.모델) }
+      $a += $extra
       & claude @a
     }
     "codex" {
       $a = @("exec", "--dangerously-bypass-approvals-and-sandbox")
       if ($p.모델)     { $a += @("-m", $p.모델) }
       if ($p.추론강도) { $a += @("-c", "model_reasoning_effort=$($p.추론강도)") }
+      $a += $extra
       $a += $readCmd
       & codex @a
     }
     "hermes" {
-      & hermes --yolo -z $readCmd
+      $a = @("--yolo", "-z") + $extra + @($readCmd)
+      & hermes @a
     }
     default {
-      $extra = @(); if ($p.실행인자) { $extra = @($p.실행인자) }
       & $p.cli @extra $readCmd
     }
   }

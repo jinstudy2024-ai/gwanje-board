@@ -169,8 +169,10 @@ function Build-Args($p, $readCmd) {
 }
 
 function Invoke-Agent($p, $readCmd) {
+  # CLI 자신의 로그(진행상황·토큰 사용량 등)는 삼킨다. 2>&1 을 빼면 stderr 로 찍는 CLI(codex 등)의
+  # 로그가 토론 진행 화면을 덮어 버린다. 실패는 드라이버가 따로 판정해 알린다.
   $a = Build-Args $p $readCmd
-  & $p.cli @a | Out-Null
+  & $p.cli @a 2>&1 | Out-Null
 }
 
 function Test-Agent($p) {

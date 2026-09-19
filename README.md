@@ -3,9 +3,11 @@
 [![다운로드](https://img.shields.io/github/downloads/jinstudy2024-ai/gwanje-board/total?label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C&color=blue)](https://github.com/jinstudy2024-ai/gwanje-board/releases) [![라이선스](https://img.shields.io/github/license/jinstudy2024-ai/gwanje-board?label=%EB%9D%BC%EC%9D%B4%EC%84%A0%EC%8A%A4&color=green)](LICENSE)
 
 여러 AI 도구(클로드코드·코덱스 등)와 사람이 **같은 프로젝트를 동시에** 건드릴 때 쓰는 교통 신호등입니다.
-"지금 누가 무엇을 잡고 있는지"만 한곳에 모읍니다. 병합·롤백·동기화는 하지 않습니다. **모델 API 키를 쓰지 않습니다.**
+"지금 누가 무엇을 잡고 있는지"만 한곳에 모읍니다. 병합·롤백·동기화는 하지 않습니다.
 
-만드는 건 구글 시트 하나와 거기 딸린 웹앱 주소 하나뿐입니다. 돈 드는 것 없습니다.
+만드는 건 구글 시트 하나와 거기 딸린 웹앱 주소 하나뿐입니다. **작업보드·잠금·토론(사람이 글 쓰는 것)은 구글 계정 하나면 되고 돈이 들지 않습니다.**
+
+> ⚠️ 단, **AI끼리 자동으로 토론시키는 기능(자동토론)은 다릅니다.** 참가시킬 AI의 명령줄 도구(claude·codex 등)를 각자 설치하고 **자기 유료 구독으로 로그인**해야 하며, 최소 둘이 필요합니다. 이건 개발 도구를 쓰는 분을 위한 선택 기능이고, 없어도 나머지는 그대로 씁니다. (→ [자동토론 문서](docs/2_자동토론_붙이기.md))
 
 ## 화면 다섯 개 — 일하는 순서대로
 

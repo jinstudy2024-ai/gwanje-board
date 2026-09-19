@@ -52,7 +52,6 @@ $MAXCALLS = if ($cfg.토론.최대호출) { [int]$cfg.토론.최대호출 } else
 # 사전검증: 토론 전에 참가자를 한 번씩 짧게 불러 실제로 대답하는지 본다(로그인 안 된 CLI 거르기).
 $PRECHECK = $true
 if ($cfg.토론 -and ($cfg.토론.PSObject.Properties.Name -contains '사전검증')) { $PRECHECK = [bool]$cfg.토론.사전검증 }
-$PRELIMIT = if ($cfg.토론.사전검증_제한초) { [int]$cfg.토론.사전검증_제한초 } else { 90 }
 $MAXFAIL  = 2   # 토론 중 연속 이 횟수만큼 응답이 없으면 그 참가자를 뺀다
 
 if (-not $TOPIC) { Write-Host "✗ 주제가 비어 있습니다. 설정의 토론.주제 를 채우거나 실행 인자로 주세요." -ForegroundColor Red; exit 1 }
@@ -177,20 +176,15 @@ function Invoke-Agent($p, $readCmd) {
 function Test-Agent($p) {
   # 실제로 한 번 불러 본다. 설치는 됐지만 로그인이 안 된 흔한 상태를 여기서 거른다.
   # 통과하면 $null, 실패하면 사람이 읽을 이유 문자열을 돌려준다.
+  #
+  # ⚠ 반드시 실제 토론 턴과 "똑같은 방식"으로 부른다(Invoke-Agent).
+  #   예전에 시간 제한을 걸려고 백그라운드 작업(Start-Job)으로 불렀더니
+  #   npm 셸 래퍼로 설치된 CLI(claude·codex)가 그 환경에서 시작하자마자 죽어
+  #   멀쩡한 참가자를 "로그인 안 됨"으로 잘못 걸러냈다. 검증 경로는 본 경로와 같아야 한다.
   $probe = Join-Path $env:TEMP "gwanje_probe.txt"
   Remove-Item $probe -Force -ErrorAction SilentlyContinue
   $cmd = "Write exactly the word READY (nothing else, no newline needed) to the UTF-8 text file at '$probe'. Do not print anything. Do not create or modify any other file."
-  $a = Build-Args $p $cmd
-  $timedOut = $false
-  try {
-    $job = Start-Job -ScriptBlock { param($exe, $argv) & $exe @argv 2>&1 | Out-Null } -ArgumentList @($p.cli, (,$a))
-    if (-not (Wait-Job $job -Timeout $PRELIMIT)) { Stop-Job $job -ErrorAction SilentlyContinue; $timedOut = $true }
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
-  } catch {
-    # 백그라운드 작업을 못 띄우는 환경이면 제한시간 없이 그냥 직접 부른다.
-    Invoke-Agent $p $cmd
-  }
-  if ($timedOut) { return ("{0}초 안에 아무 응답이 없습니다 — 로그인 창을 기다리는 중일 수 있습니다" -f $PRELIMIT) }
+  Invoke-Agent $p $cmd
   if (-not (Test-Path $probe)) { return "불렀지만 파일을 쓰지 못했습니다 — 로그인 안 됨 · 구독 한도 초과 · 모델 이름 오류 중 하나입니다" }
   $v = Get-Content $probe -Raw -ErrorAction SilentlyContinue
   Remove-Item $probe -Force -ErrorAction SilentlyContinue
@@ -205,6 +199,7 @@ $precalls = 0
 if ($PRECHECK) {
   Write-Host ""
   Write-Host "── 참가자 사전검증 (각자 한 번씩 짧게 불러 봅니다) ──"
+  Write-Host "   한 참가자에서 오래 멈춰 있으면 그 CLI가 로그인 창을 기다리는 중입니다 → Ctrl+C 후 그 CLI를 직접 실행해 로그인하세요." -ForegroundColor DarkGray
   $alive = @()
   foreach ($p in $parts) {
     Write-Host ("  · {0} ({1}) 확인 중…" -f $p.이름, $p.cli) -NoNewline

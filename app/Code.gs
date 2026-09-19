@@ -3,6 +3,10 @@
  *  AI 협업 관제판 v2 — 백엔드 (Google Apps Script)
  * ============================================================
  *
+ *  Copyright (c) 2026 오영진
+ *  MIT License — 이 표시를 지우지 마세요. 전문:
+ *  https://github.com/jinstudy2024-ai/gwanje-board/blob/main/LICENSE
+ *
  *  ■ 무엇인가
  *    여러 AI 도구(클로드코드·코덱스 등)와 사람이 같은 프로젝트를 병행할 때
  *    "지금 누가 무엇을 잡고 있는지"를 한 곳에 두는 교통 신호등.

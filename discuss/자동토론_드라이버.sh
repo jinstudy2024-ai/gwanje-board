@@ -43,7 +43,6 @@ out('CFG_ROUNDS', t.get('라운드', 8) or 8)
 out('NOAGREE',    t.get('합의금지_라운드', 0) or 0)
 out('MAXCALLS',   t.get('최대호출', 30) or 30)
 out('PRECHECK',   1 if t.get('사전검증', True) else 0)
-out('PRELIMIT',   t.get('사전검증_제한초', 90) or 90)
 out('RULES',      t.get('발언규칙', ''))
 out('REFS',       "\n".join(t.get('참고파일', []) or []))
 parts = [p for p in (d.get('참가자') or []) if p.get('사용', True) and p.get('cli')]
@@ -186,20 +185,14 @@ run_agent () {   # $1=cli $2=model $3=effort $4=extra $5=readcmd
 }
 
 test_agent () {   # $1=cli $2=model $3=effort $4=extra → 통과 0 / 실패 1(이유는 $WHY)
+  # ⚠ 실제 토론 턴과 똑같은 방식(run_agent)으로 부른다. 검증만 다른 방식으로 부르면
+  #   그 방식에서만 죽는 CLI를 "로그인 안 됨"으로 잘못 걸러낸다(윈도우에서 실제로 겪음).
   local cli="$1" model="$2" effort="$3" extra="$4"
-  local probe="$TMP/gwanje_probe.txt" pid waited=0 v
+  local probe="$TMP/gwanje_probe.txt" v
   rm -f "$probe"
   local cmd="Write exactly the word READY (nothing else) to the UTF-8 text file at '$probe'. Do not print anything. Do not create or modify any other file."
   WHY=""
-  run_agent "$cli" "$model" "$effort" "$extra" "$cmd" &
-  pid=$!
-  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$PRELIMIT" ]; do sleep 1; waited=$((waited + 1)); done
-  if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-    WHY="${PRELIMIT}초 안에 아무 응답이 없습니다 — 로그인 창을 기다리는 중일 수 있습니다"
-    return 1
-  fi
-  wait "$pid" 2>/dev/null
+  run_agent "$cli" "$model" "$effort" "$extra" "$cmd"
   if [ ! -s "$probe" ]; then
     WHY="불렀지만 파일을 쓰지 못했습니다 — 로그인 안 됨 · 구독 한도 초과 · 모델 이름 오류 중 하나입니다"
     return 1
@@ -219,6 +212,7 @@ MAXFAIL=2
 if [ "$PRECHECK" = "1" ]; then
   echo ""
   echo "── 참가자 사전검증 (각자 한 번씩 짧게 불러 봅니다) ──"
+  echo "   한 참가자에서 오래 멈춰 있으면 그 CLI가 로그인 창을 기다리는 중입니다 → Ctrl+C 후 그 CLI를 직접 실행해 로그인하세요."
   ALIVE=(); NAMES=""
   for i in "${IDX[@]}"; do
     nm_var="P${i}_NAME";   nm="${!nm_var}"

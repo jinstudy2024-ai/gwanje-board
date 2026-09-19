@@ -12,3 +12,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# 릴리스에 첨부하는 배포 ZIP은 저장소에 두지 않는다 (git archive 로 그때그때 만든다)
+*.zip

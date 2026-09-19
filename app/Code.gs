@@ -61,8 +61,8 @@ var HUMAN = '나';
 
 // ---------- 설정 탭 초기값 (토큰은 setup 때 무작위 생성) ----------
 var DEFAULT_CFG = {
-  '행위자목록': '헤드,클로드,ChatGPT,나',
-  '프로젝트목록': '재고앱,관제판',
+  '행위자목록': '나,클로드,ChatGPT,헤르메스',
+  '프로젝트목록': '내프로젝트,연습',
   '기본만료분': '120',
   '현재차례': '나'
 };
@@ -243,7 +243,7 @@ function setupSheets() {
 }
 
 /**
- * 예시 데이터: 프로젝트 2개(재고앱·관제판), 자원 3개(1개 잠긴 상태), 카드 4장, 지시문 1개.
+ * 예시 데이터: 프로젝트 2개(내프로젝트·연습), 자원 3개(1개 잠긴 상태), 카드 4장, 지시문 1개.
  * 잠금·보드에 이미 데이터가 있으면 건너뜀(중복 방지).
  */
 function seedExampleData() {
@@ -257,16 +257,16 @@ function seedExampleData() {
 
   // 잠금 3개: 1개 작업중(클로드), 1개 해제, 1개 만료
   var lockSheet = sheet_(SHEET_LOCK);
-  lockSheet.appendRow(['L-' + shortId_(), '재고앱', 'Code.gs', '클로드', LOCK_ACTIVE, now, h(2), '로트 등록 함수 수정 중']);
-  lockSheet.appendRow(['L-' + shortId_(), '재고앱', 'Index.html', 'ChatGPT', LOCK_RELEASED, h(-5), h(-3), '화면 폰 대응 (완료)']);
-  lockSheet.appendRow(['L-' + shortId_(), '관제판', '설치가이드.md', 'ChatGPT', LOCK_EXPIRED, h(-30), h(-28), '초안 작성 (잊힌 잠금 → 자동 만료)']);
+  lockSheet.appendRow(['L-' + shortId_(), '내프로젝트', 'Code.gs', '클로드', LOCK_ACTIVE, now, h(2), '로트 등록 함수 수정 중']);
+  lockSheet.appendRow(['L-' + shortId_(), '내프로젝트', 'Index.html', 'ChatGPT', LOCK_RELEASED, h(-5), h(-3), '화면 폰 대응 (완료)']);
+  lockSheet.appendRow(['L-' + shortId_(), '연습', '설치가이드.md', 'ChatGPT', LOCK_EXPIRED, h(-30), h(-28), '초안 작성 (잊힌 잠금 → 자동 만료)']);
 
   // 카드 4장
   var cards = [
-    ['재고앱', '로트 등록 화면 수정', '클로드', CARD_DOING, '높음', 'Code.gs', '사진 첨부 오류 잡기'],
-    ['재고앱', '설치가이드 갱신', 'ChatGPT', CARD_TODO, '보통', '설치가이드.md', '배포 순서 스크린샷 없이 글로만'],
-    ['관제판', '신호등 화면 QA', '나', CARD_TODO, '낮음', 'Index.html', '폰에서 잡기/놓기 눌러보기'],
-    ['관제판', '시트 초기 설정', '헤드', CARD_DONE, '보통', '설정탭', 'setupSheets 1회 완료']
+    ['내프로젝트', '로트 등록 화면 수정', '클로드', CARD_DOING, '높음', 'Code.gs', '사진 첨부 오류 잡기'],
+    ['내프로젝트', '설치가이드 갱신', 'ChatGPT', CARD_TODO, '보통', '설치가이드.md', '배포 순서 스크린샷 없이 글로만'],
+    ['연습', '신호등 화면 QA', '나', CARD_TODO, '낮음', 'Index.html', '폰에서 잡기/놓기 눌러보기'],
+    ['연습', '시트 초기 설정', 'ChatGPT', CARD_DONE, '보통', '설정탭', 'setupSheets 1회 완료']
   ];
   var boardSheet = sheet_(SHEET_BOARD);
   cards.forEach(function (c) {
@@ -275,17 +275,17 @@ function seedExampleData() {
 
   // 지시문 1개
   sheet_(SHEET_GUIDE).appendRow([
-    'G-' + shortId_(), '관제판', '협업 규칙',
+    'G-' + shortId_(), '연습', '협업 규칙',
     '파일을 고치기 전에 반드시 status → claim. locked 이면 손대지 말 것. 끝나면 release + card_move 끝.',
     '규칙,공통', 1, now
   ]);
 
   // 일지
-  log_('재고앱', '클로드', 'claim', 'Code.gs', '예시 데이터 · 120분');
-  log_('재고앱', 'ChatGPT', 'release', 'Index.html', '예시 데이터');
-  log_('관제판', '시스템', 'expire', '설치가이드.md', '예시 데이터 · 만료 처리');
-  log_('관제판', '헤드', 'card_add', '시트 초기 설정', '예시 데이터');
-  log_('관제판', '헤드', 'guide_add', '협업 규칙', '예시 데이터 · v1');
+  log_('내프로젝트', '클로드', 'claim', 'Code.gs', '예시 데이터 · 120분');
+  log_('내프로젝트', 'ChatGPT', 'release', 'Index.html', '예시 데이터');
+  log_('연습', '시스템', 'expire', '설치가이드.md', '예시 데이터 · 만료 처리');
+  log_('연습', 'ChatGPT', 'card_add', '시트 초기 설정', '예시 데이터');
+  log_('연습', 'ChatGPT', 'guide_add', '협업 규칙', '예시 데이터 · v1');
 
   Logger.log('예시 데이터 입력 완료: 잠금 3, 카드 4, 지시문 1');
   return { ok: true, locks: 3, cards: 4, guides: 1 };

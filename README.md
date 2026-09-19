@@ -32,6 +32,16 @@
 
 이 저장소를 남에게 나눠주려는 분은 → [docs/3_배포자용_템플릿_만들기.md](docs/3_배포자용_템플릿_만들기.md)
 
+무언가 안 될 때 첫 수는 **설치 점검**입니다. 아무것도 바꾸지 않고 어디가 비었는지만 알려줍니다.
+
+```
+# 윈도우
+powershell -ExecutionPolicy Bypass -File tools\점검.ps1
+
+# macOS · Linux · Git Bash
+bash tools/점검.sh
+```
+
 이미 쓰고 계신 분은 앱 화면 오른쪽 위의 버전을 [CHANGELOG.md](CHANGELOG.md) 맨 위와 비교하세요. 다르면 [올리는 방법](docs/1_설치_10분.md)이 설치 문서에 있습니다 — 시트 데이터는 그대로 남습니다.
 
 ## 전제 조건
@@ -47,7 +57,7 @@ CLI가 하나도 없으면 자동토론은 못 돌지만 작업보드는 멀쩡�
 app/        구글 Apps Script 에 붙여넣을 앱 3파일 (Code.gs · Index.html · appsscript.json)
 client/     에이전트·사람이 명령줄에서 관제판을 부르는 파이썬 클라이언트
 discuss/    자동토론 드라이버 (PowerShell · bash) + 설정 예시
-tools/      설치 상태 점검 스크립트
+tools/      설치 점검 (한 줄로 준비물·설정·연결·버전·이름 확인)
 test/       배포 전 앱 로직을 PC에서 검사하는 자체 테스트
 docs/       설치·운영 문서
 ```

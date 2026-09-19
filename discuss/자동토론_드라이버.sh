@@ -42,6 +42,8 @@ out('CFG_TOPIC',  t.get('주제', ''))
 out('CFG_ROUNDS', t.get('라운드', 8) or 8)
 out('NOAGREE',    t.get('합의금지_라운드', 0) or 0)
 out('MAXCALLS',   t.get('최대호출', 30) or 30)
+out('PRECHECK',   1 if t.get('사전검증', True) else 0)
+out('PRELIMIT',   t.get('사전검증_제한초', 90) or 90)
 out('RULES',      t.get('발언규칙', ''))
 out('REFS',       "\n".join(t.get('참고파일', []) or []))
 parts = [p for p in (d.get('참가자') or []) if p.get('사용', True) and p.get('cli')]
@@ -183,7 +185,67 @@ run_agent () {   # $1=cli $2=model $3=effort $4=extra $5=readcmd
   esac
 }
 
+test_agent () {   # $1=cli $2=model $3=effort $4=extra → 통과 0 / 실패 1(이유는 $WHY)
+  local cli="$1" model="$2" effort="$3" extra="$4"
+  local probe="$TMP/gwanje_probe.txt" pid waited=0 v
+  rm -f "$probe"
+  local cmd="Write exactly the word READY (nothing else) to the UTF-8 text file at '$probe'. Do not print anything. Do not create or modify any other file."
+  WHY=""
+  run_agent "$cli" "$model" "$effort" "$extra" "$cmd" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$PRELIMIT" ]; do sleep 1; waited=$((waited + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    WHY="${PRELIMIT}초 안에 아무 응답이 없습니다 — 로그인 창을 기다리는 중일 수 있습니다"
+    return 1
+  fi
+  wait "$pid" 2>/dev/null
+  if [ ! -s "$probe" ]; then
+    WHY="불렀지만 파일을 쓰지 못했습니다 — 로그인 안 됨 · 구독 한도 초과 · 모델 이름 오류 중 하나입니다"
+    return 1
+  fi
+  v="$(cat "$probe")"; rm -f "$probe"
+  case "$v" in
+    *READY*) return 0 ;;
+    *) WHY="대답이 지시와 다릅니다 — 이 CLI로는 파일 쓰기 지시가 먹지 않습니다"; return 1 ;;
+  esac
+}
+
 READ="Read the UTF-8 text file at '$PROMPT_FILE' and do exactly what it says. Write your answer to the file it names. Do not print the answer."
+
+# ---- 사전검증: 실제로 대답하는 참가자만 남긴다 ----
+PRECALLS=0
+MAXFAIL=2
+if [ "$PRECHECK" = "1" ]; then
+  echo ""
+  echo "── 참가자 사전검증 (각자 한 번씩 짧게 불러 봅니다) ──"
+  ALIVE=(); NAMES=""
+  for i in "${IDX[@]}"; do
+    nm_var="P${i}_NAME";   nm="${!nm_var}"
+    cli_var="P${i}_CLI";   cli="${!cli_var}"
+    md_var="P${i}_MODEL";  md="${!md_var}"
+    ef_var="P${i}_EFFORT"; ef="${!ef_var}"
+    ex_var="P${i}_EXTRA";  ex="${!ex_var}"
+    printf '  · %s (%s) 확인 중…' "$nm" "$cli"
+    PRECALLS=$((PRECALLS + 1))
+    if test_agent "$cli" "$md" "$ef" "$ex"; then
+      echo " 응답함 ✓"
+      ALIVE+=("$i"); NAMES="${NAMES:+$NAMES, }$nm"
+    else
+      echo ""
+      echo "    ✗ 제외 — $WHY"
+    fi
+  done
+  IDX=(${ALIVE[@]+"${ALIVE[@]}"})
+  if [ "${#IDX[@]}" -lt 1 ]; then
+    echo ""
+    echo "✗ 대답하는 참가자가 하나도 없습니다. 토론을 시작하지 않습니다."
+    echo "  → 각 CLI를 터미널에서 직접 한 번 실행해 로그인 상태를 확인하세요."
+    echo "  → 검증을 건너뛰려면 설정의 토론.사전검증 을 false 로 두세요."
+    exit 1
+  fi
+  [ "${#IDX[@]}" -lt 2 ] && echo "⚠ 대답한 참가자가 ${#IDX[@]}명뿐입니다. 이대로 진행합니다."
+fi
 
 echo "=================================================="
 echo " 자동토론 시작 — 주제: $TOPIC"
@@ -191,14 +253,30 @@ echo " 참가자 ${#IDX[@]}명: $NAMES"
 EXPECT=$(( ${#IDX[@]} * ROUNDS ))
 echo " 최대 ${ROUNDS} 라운드"
 echo " 예상 AI 호출: ${#IDX[@]}명 x ${ROUNDS}라운드 = 최대 ${EXPECT}회  (상한 ${MAXCALLS}회)"
-[ "$EXPECT" -gt "$MAXCALLS" ] && echo " ⚠ 예상이 상한을 넘습니다. 상한에 닿으면 중간에 멈춥니다(설정의 토론.최대호출)."
+[ "$PRECALLS" -gt 0 ] && echo " 사전검증에 ${PRECALLS}회를 이미 썼습니다 (상한에 포함)"
+[ "$((EXPECT + PRECALLS))" -gt "$MAXCALLS" ] && echo " ⚠ 예상이 상한을 넘습니다. 상한에 닿으면 중간에 멈춥니다(설정의 토론.최대호출)."
 echo " 관제판 앱 '토론' 탭에서 실시간으로 쌓이는 걸 보세요."
 echo "=================================================="
 
 AGREED=0
 CAPPED=0
-CALLS=0
+CALLS=$PRECALLS
+FAILS=(); DROPPED=()
+for ((i=0; i<NPART; i++)); do FAILS[$i]=0; DROPPED[$i]=0; done
+
+note_fail () {   # $1=번호 $2=이름 $3=이유
+  local i="$1" nm="$2" why="$3"
+  FAILS[$i]=$(( FAILS[i] + 1 ))
+  echo "  ↷ $nm — $why (연속 ${FAILS[$i]}회)"
+  if [ "${FAILS[$i]}" -ge "$MAXFAIL" ]; then
+    DROPPED[$i]=1
+    echo "  ‖ '$nm' 을(를) 이번 토론에서 뺍니다 — 연속 ${MAXFAIL}회 응답 없음. 남은 참가자로 계속합니다."
+  fi
+}
 for ((r=1; r<=ROUNDS && AGREED==0 && CAPPED==0; r++)); do
+  LEFT=0
+  for i in "${IDX[@]}"; do [ "${DROPPED[$i]}" = "0" ] && LEFT=$((LEFT + 1)); done
+  if [ "$LEFT" -lt 1 ]; then echo ""; echo "✗ 남은 참가자가 없어 토론을 멈춥니다."; break; fi
   echo ""; echo "###### 라운드 $r / $ROUNDS ######"
   for i in "${IDX[@]}"; do
     nm_var="P${i}_NAME";   nm="${!nm_var}"
@@ -207,6 +285,7 @@ for ((r=1; r<=ROUNDS && AGREED==0 && CAPPED==0; r++)); do
     ef_var="P${i}_EFFORT"; ef="${!ef_var}"
     an_var="P${i}_ANGLE";  an="${!an_var}"
     ex_var="P${i}_EXTRA";  ex="${!ex_var}"
+    [ "${DROPPED[$i]}" = "1" ] && continue
     if [ "$CALLS" -ge "$MAXCALLS" ]; then
       echo "‖ 호출 상한 ${MAXCALLS}회에 도달해 멈춥니다. 더 돌리려면 설정의 토론.최대호출 을 올리세요."
       CAPPED=1; break
@@ -222,8 +301,9 @@ for ((r=1; r<=ROUNDS && AGREED==0 && CAPPED==0; r++)); do
     run_agent "$cli" "$md" "$ef" "$ex" "$READ"
 
     if [ ! -s "$ANSWER_FILE" ]; then
-      echo "  ↷ 발언 파일이 비었거나 만들어지지 않았습니다. 이 턴은 건너뜁니다."; continue
+      note_fail "$i" "$nm" "발언 파일이 비었거나 만들어지지 않았습니다"; continue
     fi
+    FAILS[$i]=0
     echo "  말: $(tr '\n' ' ' < "$ANSWER_FILE" | cut -c1-70)…"
 
     RES="$(post_answer "$nm" "$LAST_ID")"

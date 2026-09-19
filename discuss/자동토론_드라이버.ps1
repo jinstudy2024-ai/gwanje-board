@@ -49,6 +49,12 @@ $REFS    = @(); if ($cfg.토론.참고파일) { $REFS = @($cfg.토론.참고파�
 $MAXPOST = 20   # 프롬프트에 넣을 최근 글 수
 $MAXCALLS = if ($cfg.토론.최대호출) { [int]$cfg.토론.최대호출 } else { 30 }   # AI 호출 총 상한(안전장치)
 
+# 사전검증: 토론 전에 참가자를 한 번씩 짧게 불러 실제로 대답하는지 본다(로그인 안 된 CLI 거르기).
+$PRECHECK = $true
+if ($cfg.토론 -and ($cfg.토론.PSObject.Properties.Name -contains '사전검증')) { $PRECHECK = [bool]$cfg.토론.사전검증 }
+$PRELIMIT = if ($cfg.토론.사전검증_제한초) { [int]$cfg.토론.사전검증_제한초 } else { 90 }
+$MAXFAIL  = 2   # 토론 중 연속 이 횟수만큼 응답이 없으면 그 참가자를 뺀다
+
 if (-not $TOPIC) { Write-Host "✗ 주제가 비어 있습니다. 설정의 토론.주제 를 채우거나 실행 인자로 주세요." -ForegroundColor Red; exit 1 }
 if ($ROUNDS -lt 1) { $ROUNDS = 8 }
 
@@ -137,7 +143,7 @@ $ANSWER_FILE
   [IO.File]::WriteAllText($PROMPT_FILE, $t, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-function Invoke-Agent($p, $readCmd) {
+function Build-Args($p, $readCmd) {
   # 설정의 "실행인자" 는 모든 CLI에 적용된다. 프롬프트는 언제나 맨 마지막 인자.
   $extra = @(); if ($p.실행인자) { $extra = @($p.실행인자) }
   switch ($p.cli) {
@@ -145,7 +151,6 @@ function Invoke-Agent($p, $readCmd) {
       $a = @("-p", $readCmd, "--dangerously-skip-permissions")
       if ($p.모델) { $a += @("--model", $p.모델) }
       $a += $extra
-      & claude @a | Out-Null
     }
     "codex" {
       $a = @("exec", "--dangerously-bypass-approvals-and-sandbox")
@@ -153,19 +158,76 @@ function Invoke-Agent($p, $readCmd) {
       if ($p.추론강도) { $a += @("-c", "model_reasoning_effort=$($p.추론강도)") }
       $a += $extra
       $a += $readCmd
-      & codex @a | Out-Null
     }
     "hermes" {
       $a = @("--yolo", "-z") + $extra + @($readCmd)
-      & hermes @a | Out-Null
     }
     default {
-      & $p.cli @extra $readCmd | Out-Null
+      $a = @() + $extra + @($readCmd)
     }
   }
+  return ,$a
+}
+
+function Invoke-Agent($p, $readCmd) {
+  $a = Build-Args $p $readCmd
+  & $p.cli @a | Out-Null
+}
+
+function Test-Agent($p) {
+  # 실제로 한 번 불러 본다. 설치는 됐지만 로그인이 안 된 흔한 상태를 여기서 거른다.
+  # 통과하면 $null, 실패하면 사람이 읽을 이유 문자열을 돌려준다.
+  $probe = Join-Path $env:TEMP "gwanje_probe.txt"
+  Remove-Item $probe -Force -ErrorAction SilentlyContinue
+  $cmd = "Write exactly the word READY (nothing else, no newline needed) to the UTF-8 text file at '$probe'. Do not print anything. Do not create or modify any other file."
+  $a = Build-Args $p $cmd
+  $timedOut = $false
+  try {
+    $job = Start-Job -ScriptBlock { param($exe, $argv) & $exe @argv 2>&1 | Out-Null } -ArgumentList @($p.cli, (,$a))
+    if (-not (Wait-Job $job -Timeout $PRELIMIT)) { Stop-Job $job -ErrorAction SilentlyContinue; $timedOut = $true }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+  } catch {
+    # 백그라운드 작업을 못 띄우는 환경이면 제한시간 없이 그냥 직접 부른다.
+    Invoke-Agent $p $cmd
+  }
+  if ($timedOut) { return ("{0}초 안에 아무 응답이 없습니다 — 로그인 창을 기다리는 중일 수 있습니다" -f $PRELIMIT) }
+  if (-not (Test-Path $probe)) { return "불렀지만 파일을 쓰지 못했습니다 — 로그인 안 됨 · 구독 한도 초과 · 모델 이름 오류 중 하나입니다" }
+  $v = Get-Content $probe -Raw -ErrorAction SilentlyContinue
+  Remove-Item $probe -Force -ErrorAction SilentlyContinue
+  if ($null -eq $v -or $v -notmatch "READY") { return "대답이 지시와 다릅니다 — 이 CLI로는 파일 쓰기 지시가 먹지 않습니다" }
+  return $null
 }
 
 $READ = "Read the UTF-8 text file at '$PROMPT_FILE' and do exactly what it says. Write your answer to the file it names. Do not print the answer."
+
+# ---- 사전검증: 실제로 대답하는 참가자만 남긴다 ----
+$precalls = 0
+if ($PRECHECK) {
+  Write-Host ""
+  Write-Host "── 참가자 사전검증 (각자 한 번씩 짧게 불러 봅니다) ──"
+  $alive = @()
+  foreach ($p in $parts) {
+    Write-Host ("  · {0} ({1}) 확인 중…" -f $p.이름, $p.cli) -NoNewline
+    $precalls++
+    $why = Test-Agent $p
+    if ($why) {
+      Write-Host ""
+      Write-Host ("    ✗ 제외 — {0}" -f $why) -ForegroundColor Yellow
+    } else {
+      Write-Host " 응답함 ✓" -ForegroundColor Green
+      $alive += $p
+    }
+  }
+  $parts = @($alive)
+  if ($parts.Count -lt 1) {
+    Write-Host ""
+    Write-Host "✗ 대답하는 참가자가 하나도 없습니다. 토론을 시작하지 않습니다." -ForegroundColor Red
+    Write-Host "  → 각 CLI를 터미널에서 직접 한 번 실행해 로그인 상태를 확인하세요."
+    Write-Host "  → 검증을 건너뛰려면 설정의 토론.사전검증 을 false 로 두세요."
+    exit 1
+  }
+  if ($parts.Count -lt 2) { Write-Host ("⚠ 대답한 참가자가 {0}명뿐입니다. 이대로 진행합니다." -f $parts.Count) -ForegroundColor Yellow }
+}
 
 Write-Host "=================================================="
 Write-Host " 자동토론 시작 — 주제: $TOPIC"
@@ -173,18 +235,33 @@ Write-Host (" 참가자 {0}명: {1}" -f $parts.Count, (($parts | ForEach-Object 
 Write-Host " 최대 $ROUNDS 라운드"
 $expect = $parts.Count * $ROUNDS
 Write-Host (" 예상 AI 호출: {0}명 x {1}라운드 = 최대 {2}회  (상한 {3}회)" -f $parts.Count, $ROUNDS, $expect, $MAXCALLS) -ForegroundColor Cyan
-if ($expect -gt $MAXCALLS) { Write-Host " ⚠ 예상이 상한을 넘습니다. 상한에 닿으면 중간에 멈춥니다(설정의 토론.최대호출)." -ForegroundColor Yellow }
+if ($precalls -gt 0) { Write-Host (" 사전검증에 {0}회를 이미 썼습니다 (상한에 포함)" -f $precalls) -ForegroundColor Cyan }
+if (($expect + $precalls) -gt $MAXCALLS) { Write-Host " ⚠ 예상이 상한을 넘습니다. 상한에 닿으면 중간에 멈춥니다(설정의 토론.최대호출)." -ForegroundColor Yellow }
 Write-Host " 관제판 앱 '토론' 탭에서 실시간으로 쌓이는 걸 보세요."
 Write-Host "=================================================="
 
-$agreed = $false
-$capped = $false
-$calls  = 0
+$agreed  = $false
+$capped  = $false
+$calls   = $precalls
+$fails   = @{}
+$dropped = @{}
+
+function Note-Fail($p, $why) {
+  $n = $p.이름
+  if (-not $fails.ContainsKey($n)) { $fails[$n] = 0 }
+  $fails[$n] = $fails[$n] + 1
+  Write-Host ("  ↷ {0} — {1} (연속 {2}회)" -f $n, $why, $fails[$n]) -ForegroundColor Yellow
+  if ($fails[$n] -ge $MAXFAIL) {
+    $dropped[$n] = $true
+    Write-Host ("  ‖ '{0}' 을(를) 이번 토론에서 뺍니다 — 연속 {1}회 응답 없음. 남은 참가자로 계속합니다." -f $n, $MAXFAIL) -ForegroundColor Yellow
+  }
+}
 for ($i = 1; $i -le $ROUNDS -and -not $agreed -and -not $capped; $i++) {
   Write-Host ""
   Write-Host "###### 라운드 $i / $ROUNDS ######"
 
   foreach ($p in $parts) {
+    if ($dropped.ContainsKey($p.이름)) { continue }
     if ($calls -ge $MAXCALLS) {
       Write-Host ("‖ 호출 상한 {0}회에 도달해 멈춥니다. 더 돌리려면 설정의 토론.최대호출 을 올리세요." -f $MAXCALLS) -ForegroundColor Yellow
       $capped = $true; break
@@ -201,13 +278,14 @@ for ($i = 1; $i -le $ROUNDS -and -not $agreed -and -not $capped; $i++) {
     Invoke-Agent $p $READ
 
     if (-not (Test-Path $ANSWER_FILE)) {
-      Write-Host "  ↷ 발언 파일이 만들어지지 않았습니다. 이 턴은 건너뜁니다." -ForegroundColor Yellow
+      Note-Fail $p "발언 파일을 만들지 못했습니다"
       continue
     }
     $ans = (Get-Content $ANSWER_FILE -Raw -Encoding UTF8)
     if ($null -eq $ans) { $ans = "" }
     $ans = $ans.Trim()
-    if (-not $ans) { Write-Host "  ↷ 발언이 비어 있습니다. 이 턴은 건너뜁니다." -ForegroundColor Yellow; continue }
+    if (-not $ans) { Note-Fail $p "발언이 비어 있습니다"; continue }
+    $fails[$p.이름] = 0
 
     $prev = $ans -replace "\s+", " "
     if ($prev.Length -gt 70) { $prev = $prev.Substring(0, 70) + "…" }
@@ -224,6 +302,14 @@ for ($i = 1; $i -le $ROUNDS -and -not $agreed -and -not $capped; $i++) {
       Write-Host ("  ✗ 올리기 실패: {0}" -f $err) -ForegroundColor Red
       if ($err -eq "unknown_actor") { Write-Host ("     → 시트 '설정' 탭 행위자목록에 '{0}' 을(를) 추가하세요." -f $p.이름) }
       if ($err -eq "unknown_project") { Write-Host ("     → 시트 '설정' 탭 프로젝트목록에 '{0}' 을(를) 추가하세요." -f $PROJECT) }
+    }
+  }
+
+  if ($dropped.Count -gt 0) {
+    $parts = @($parts | Where-Object { -not $dropped.ContainsKey($_.이름) })
+    if ($parts.Count -lt 1) {
+      Write-Host "✗ 남은 참가자가 없어 토론을 멈춥니다." -ForegroundColor Red
+      break
     }
   }
 }

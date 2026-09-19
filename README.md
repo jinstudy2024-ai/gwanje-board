@@ -70,4 +70,4 @@ node test/run_tests.js
 
 ## 라이선스
 
-MIT. `LICENSE` 파일의 저작권자 이름을 본인 이름이나 GitHub 계정으로 채워서 쓰세요.
+MIT. 가져다 쓰셔도 되고 고치셔도 됩니다. `LICENSE` 의 저작권 표시만 남겨 주세요.

@@ -1,0 +1,14 @@
+# 실제 설정 파일은 절대 커밋하지 않는다 (앱 주소·토큰 포함)
+gwanje.config.json
+**/gwanje.config.json
+자동토론.config.json
+**/자동토론.config.json
+*.local.json
+
+# 파이썬
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

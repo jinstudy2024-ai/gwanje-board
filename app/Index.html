@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 협업 관제판</title>
+<style>
+  /* ---------- 기본 ---------- */
+  :root {
+    --red: #e53935; --orange: #fb8c00; --green: #43a047; --blue: #1e88e5;
+    --gray: #757575; --bg: #f3f4f6; --card: #ffffff; --line: #e0e0e0; --txt: #212121;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background: var(--bg); color: var(--txt); font-size: 15px; line-height: 1.45; }
+  button, input, select, textarea { font: inherit; }
+  input, select, textarea { padding: 7px 9px; border: 1px solid #bdbdbd; border-radius: 8px; background: #fff; min-width: 0; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid #90caf9; border-color: var(--blue); }
+  textarea { width: 100%; min-height: 160px; resize: vertical; }
+  .btn { padding: 7px 12px; border: 1px solid #bdbdbd; border-radius: 8px; background: #fff; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: #f5f5f5; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.primary:hover { background: #1976d2; }
+  .btn.danger { background: #fff; border-color: var(--red); color: var(--red); }
+  .btn.small { padding: 4px 8px; font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1 1 160px; }
+  .muted { color: var(--gray); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: #eeeeee; margin-right: 4px; }
+  .tag.p-높음 { background: #ffebee; color: #c62828; }
+  .tag.p-보통 { background: #e3f2fd; color: #1565c0; }
+  .tag.p-낮음 { background: #f1f8e9; color: #558b2f; }
+  .tag.actor { background: #ede7f6; color: #4527a0; }
+  .link { color: var(--blue); cursor: pointer; text-decoration: underline; background: none; border: 0; padding: 0; }
+  h2 { font-size: 17px; margin: 14px 0 8px; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+
+  /* ---------- 상단바 · 탭 ---------- */
+  .topbar { position: sticky; top: 0; z-index: 5; }
+  header { background: #fff; border-bottom: 1px solid var(--line); padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  header .title { font-weight: 800; font-size: 16px; margin-right: 4px; }
+  .turn { font-weight: 700; padding: 5px 12px; border-radius: 999px; background: #e8f5e9; color: #2e7d32; }
+  #busy { width: 10px; height: 10px; border-radius: 50%; background: var(--orange); opacity: 0; transition: .2s; }
+  #busy.on { opacity: 1; }
+  nav { display: flex; background: #fff; border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; padding: 11px 4px; border: 0; background: none; font-size: 14px; border-bottom: 3px solid transparent; cursor: pointer; color: #555; }
+  nav button.on { border-color: var(--blue); color: var(--blue); font-weight: 700; }
+  main { padding: 12px; max-width: 1100px; margin: 0 auto; }
+  section { display: none; }
+  section.on { display: block; }
+
+  /* ---------- 신호등 ---------- */
+  .lock { border-left: 6px solid var(--red); }
+  .lock.soon { border-left-color: var(--orange); }
+  .lock.mine { background: #fffdf5; }
+  .free { border-left: 6px solid var(--green); }
+  .hint { min-height: 20px; }
+  .hint.bad { color: var(--red); font-weight: 600; }
+  .hint.good { color: var(--green); }
+
+  /* ---------- 보드 ---------- */
+  .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 720px) { .kanban { grid-template-columns: 1fr; } }
+  .col { background: #e9ebef; border-radius: 12px; padding: 8px; min-height: 120px; }
+  .col h3 { display: flex; justify-content: space-between; padding: 2px 4px; }
+  .kcard .title { font-weight: 700; }
+  .kcard select { padding: 3px 6px; font-size: 13px; }
+  .kcard .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 6px; }
+
+  /* ---------- 일지 ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 10px; overflow: hidden; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  th { background: #fafafa; }
+  .wrap { overflow-x: auto; }
+  .act-claim { color: var(--red); font-weight: 700; }
+  .act-release { color: var(--green); font-weight: 700; }
+  .act-expire { color: var(--orange); font-weight: 700; }
+
+  /* ---------- 토론 ---------- */
+  .discussion-compose textarea { min-height: 105px; }
+  .discussion-post { margin-left: var(--indent, 0px); }
+  .discussion-post.reply { border-left: 4px solid #bbdefb; }
+  .discussion-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .discussion-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 8px; }
+  .discussion-reply-form { margin-top: 8px; padding: 9px; border-radius: 8px; background: #f7f9fc; }
+  .discussion-reply-form textarea { min-height: 78px; }
+  .discussion-topic-menu { margin-top: 7px; padding: 7px; border: 1px solid var(--line); border-radius: 9px; background: #fafafa; max-height: 220px; overflow-y: auto; }
+  .discussion-topic-menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+  .discussion-topic-menu button:hover, .discussion-topic-menu button.on { background: #e3f2fd; color: #1565c0; }
+  [hidden] { display: none !important; }
+
+  /* ---------- 토스트 · 모달 ---------- */
+  #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: #323232; color: #fff; padding: 10px 16px; border-radius: 8px; opacity: 0; transition: .2s; pointer-events: none; z-index: 99; max-width: 92vw; }
+  #toast.show { opacity: 1; }
+  #toast.err { background: #b71c1c; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 12px; }
+  .modal.on { display: flex; }
+  .modal .box { background: #fff; border-radius: 12px; max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; padding: 16px; }
+  pre.guide { white-space: pre-wrap; word-break: break-all; background: #fafafa; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ================= 상단 고정 ================= -->
+<div class="topbar">
+<header>
+  <span class="title">🚦 관제판</span>
+  <select id="projectSel" title="프로젝트"></select>
+  <span class="turn" id="turnBadge">🟢 지금 차례: -</span>
+  <label class="row" style="gap:4px"><span class="muted">나는</span><select id="meSel" title="나는 누구"></select></label>
+  <button class="btn small" id="refreshBtn">새로고침</button>
+  <span id="busy"></span>
+  <span class="muted" id="nowLabel"></span>
+</header>
+<nav>
+  <button data-tab="lock" class="on">🚦 신호등</button>
+  <button data-tab="board">🗂 작업보드</button>
+  <button data-tab="log">📜 작업일지</button>
+  <button data-tab="discuss">💬 토론</button>
+  <button data-tab="guide">📚 지시문</button>
+</nav>
+</div>
+
+<main>
+  <!-- ================= 신호등 ================= -->
+  <section id="tab-lock" class="on">
+    <div class="card">
+      <h3>자원 잡기</h3>
+      <div class="row">
+        <input id="resInput" class="grow" placeholder="자원 (파일 경로·폴더·시트탭·논리자원 …)" autocomplete="off">
+        <input id="memoInput" class="grow" placeholder="메모 한 줄 (선택)">
+        <input id="minInput" type="number" min="5" step="5" style="width:90px" title="만료(분)">
+        <button class="btn primary" id="claimBtn">잡기</button>
+      </div>
+      <div class="hint muted" id="claimHint"></div>
+    </div>
+
+    <h2>잡힌 자원 <span class="muted" id="lockCount"></span></h2>
+    <div id="lockList"></div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>차례 넘기기</h3>
+      <div class="row">
+        <select id="turnSel"></select>
+        <button class="btn" id="turnBtn">차례 넘기기</button>
+        <span class="muted">차례는 안내용. 실제 충돌을 막는 건 잠금.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 작업보드 ================= -->
+  <section id="tab-board">
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn primary" id="cardAddToggle">+ 카드 추가</button>
+      <span class="muted">관련자원 클릭 → 신호등에서 바로 잡기</span>
+    </div>
+    <div class="card" id="cardAddForm" style="display:none">
+      <div class="row">
+        <input id="cTitle" class="grow" placeholder="제목 *">
+        <select id="cAssignee"></select>
+        <select id="cPriority"><option>높음</option><option selected>보통</option><option>낮음</option></select>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input id="cResource" class="grow" placeholder="관련자원 (파일 경로 등)">
+        <input id="cMemo" class="grow" placeholder="메모">
+        <button class="btn primary" id="cardAddBtn">추가</button>
+        <button class="btn" id="cardAddCancel">취소</button>
+      </div>
+    </div>
+    <div class="kanban">
+      <div class="col"><h3>할일 <span class="muted" id="cnt-할일"></span></h3><div id="col-할일"></div></div>
+      <div class="col"><h3>하는중 <span class="muted" id="cnt-하는중"></span></h3><div id="col-하는중"></div></div>
+      <div class="col"><h3>끝 <span class="muted" id="cnt-끝"></span></h3><div id="col-끝"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= 작업일지 ================= -->
+  <section id="tab-log">
+    <div class="card">
+      <div class="row">
+        <input id="noteInput" class="grow" placeholder="메모 한 줄 (일지에 남김)">
+        <button class="btn primary" id="noteBtn">메모 남기기</button>
+      </div>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <label class="row" style="gap:4px"><span class="muted">행위자</span><select id="logActorSel"><option value="">전체</option></select></label>
+      <label class="row" style="gap:4px"><input type="checkbox" id="logAllProjects"> 전체 프로젝트</label>
+      <button class="btn small" id="logRefresh">새로고침</button>
+      <span class="muted" id="logCount"></span>
+    </div>
+    <div class="wrap">
+      <table>
+        <thead><tr><th>일시</th><th>프로젝트</th><th>행위자</th><th>행동</th><th>대상</th><th>상세</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 토론 ================= -->
+  <section id="tab-discuss">
+    <div class="card discussion-compose">
+      <h3>주제와 의견</h3>
+      <div class="row">
+        <input id="discussTopicInput" class="grow" list="discussTopicOptions" placeholder="새 주제를 입력하거나 기존 주제를 선택하세요" autocomplete="off">
+        <datalist id="discussTopicOptions"></datalist>
+        <button class="btn" id="discussTopicBtn" aria-expanded="false" aria-controls="discussTopicMenu">주제 보기</button>
+      </div>
+      <div class="discussion-topic-menu" id="discussTopicMenu" hidden></div>
+      <div class="muted" style="margin:7px 0 4px">작성자: <b id="discussActor">상단의 ‘나는’에서 선택</b></div>
+      <textarea id="discussTextInput" placeholder="이 주제에 남길 의견을 쓰세요"></textarea>
+      <div class="row" style="justify-content:space-between;margin-top:7px">
+        <span class="muted">실시간 채팅이 아니라, 글을 남기고 답글로 이어가는 공간입니다.</span>
+        <button class="btn primary" id="discussPostBtn">올리기</button>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:space-between;margin:12px 0 8px">
+      <h2 id="discussHeading" style="margin:0">글 목록</h2>
+      <div class="row">
+        <span class="muted" id="discussCount"></span>
+        <button class="btn small" id="discussRefresh">새로고침</button>
+      </div>
+    </div>
+    <div id="discussList" aria-live="polite"><div class="card muted">주제를 불러오는 중…</div></div>
+  </section>
+
+  <!-- ================= 지시문보관함 ================= -->
+  <section id="tab-guide">
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn primary" id="guideNewBtn">+ 새 지시문</button>
+      <button class="btn" id="promptCopyBtn">📋 에이전트 프롬프트 복사</button>
+      <span class="muted">프롬프트 = 현재 프로젝트 + [나는 누구] 기준. AI 세션 첫머리에 붙여넣기.</span>
+    </div>
+    <div id="guideList"></div>
+  </section>
+</main>
+
+<!-- ================= 모달 · 토스트 ================= -->
+<div class="modal" id="modal">
+  <div class="box">
+    <div class="row" style="justify-content:space-between">
+      <h3 id="modalTitle" style="margin:0"></h3>
+      <button class="btn small" id="modalClose">닫기</button>
+    </div>
+    <div id="modalBody" style="margin-top:10px"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ============================================================
+//  화면 로직 — 모든 서버 호출은 rpc(token, action, params) 하나로.
+//  서버의 웹주소 라우터(route_)를 그대로 타므로 로직 중복 없음.
+// ============================================================
+// 토큰은 서버 템플릿이 JSON 문자열로 넣는다(HTML 이스케이프 아님 — 따옴표·& 가 든 토큰도 안전)
+var TOKEN = <?!= JSON.stringify(token).replace(/</g, '\\u003c') ?>;
+var S = { project: '', me: '', actors: [], projects: [], turn: '', defaultMinutes: 120, locks: [], cards: [], guides: [], discussions: [], discussionTopics: [], discussionSelectedTopic: '', now: '' };
+var busyCount = 0;
+var discussionLoadSeq = 0;
+var discussionPollTimer = null;
+var discussionLoading = false;
+var discussionRenderedTopic = '';
+var discussionRenderedSignature = '';
+var DISCUSSION_POLL_MS = 5000;
+
+// ---------- 서버 호출 ----------
+function call(action, params) {
+  setBusy(1);
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function (r) { setBusy(-1); resolve(r); })
+      .withFailureHandler(function (e) { setBusy(-1); reject(e); })
+      .rpc(TOKEN, action, params || {});
+  });
+}
+/** 호출 + 실패 시 토스트. 결과 객체 반환(실패해도 반환) */
+async function api(action, params) {
+  try {
+    var r = await call(action, params);
+    if (!r || !r.ok) toast(errMsg(r), true);
+    return r || { ok: false, error: 'empty' };
+  } catch (e) {
+    toast('서버 오류: ' + (e && e.message ? e.message : e), true);
+    return { ok: false, error: 'exception' };
+  }
+}
+function errMsg(r) {
+  if (!r) return '응답 없음';
+  var m = {
+    unauthorized: '토큰이 맞지 않습니다. 주소의 ?token= 을 확인하세요.',
+    locked: (r.by || '누군가') + ' 작업중 · ' + hhmm(r.until) + '까지' + (r.memo ? ' (' + r.memo + ')' : ''),
+    forbidden: (r.by || '남') + '이(가) 잡은 자원입니다. 본인 또는 "나"만 놓을 수 있어요.',
+    not_locked: '잡혀 있지 않은 자원입니다.',
+    unknown_actor: '설정 탭 행위자목록에 없는 이름: ' + (r.actor || ''),
+    unknown_project: '설정 탭 프로젝트목록에 없는 프로젝트: ' + (r.project || ''),
+    missing_param: '필수 입력 누락: ' + ((r.missing || []).join(', ')),
+    not_found: '찾을 수 없습니다.',
+    not_empty: '이미 데이터가 있습니다.',
+    bad_status: '상태 값 오류', bad_priority: '우선순위 값 오류',
+    exception: '서버 예외: ' + (r.detail || '')
+  };
+  return m[r.error] || ('오류: ' + (r.error || '알 수 없음'));
+}
+function setBusy(d) { busyCount = Math.max(0, busyCount + d); document.getElementById('busy').classList.toggle('on', busyCount > 0); }
+
+// ---------- 유틸 ----------
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function hhmm(s) { s = String(s || ''); return s.length >= 16 ? s.slice(11, 16) : s; }
+var toastTimer = null;
+function toast(msg, isErr) {
+  var t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = ''; }, isErr ? 4000 : 2200);
+}
+function fillSelect(sel, items, selected, extraFirst) {
+  sel.innerHTML = '';
+  if (extraFirst) { var o0 = document.createElement('option'); o0.value = ''; o0.textContent = extraFirst; sel.appendChild(o0); }
+  items.forEach(function (it) { var o = document.createElement('option'); o.value = it; o.textContent = it; sel.appendChild(o); });
+  if (selected !== undefined) sel.value = selected;
+}
+function needMe() {
+  if (S.me) return true;
+  toast('상단에서 [나는 누구]를 먼저 고르세요.', true);
+  $('meSel').focus();
+  return false;
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { /* iframe 제한 → 아래 대체 */ }
+  var ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+function openModal(title, bodyHtml) { $('modalTitle').textContent = title; $('modalBody').innerHTML = bodyHtml; $('modal').classList.add('on'); }
+function closeModal() { $('modal').classList.remove('on'); }
+function save(k, v) { try { localStorage.setItem('kb_' + k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem('kb_' + k) || ''; } catch (e) { return ''; } }
+
+// ---------- 탭 ----------
+function showTab(name) {
+  if (name !== 'discuss') stopDiscussionPolling();
+  document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
+  document.querySelectorAll('main section').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + name); });
+  save('tab', name);
+  if (name === 'lock') refreshStatus();
+  if (name === 'board') loadBoard();
+  if (name === 'log') loadLog();
+  if (name === 'discuss') loadDiscussions().then(startDiscussionPolling);
+  if (name === 'guide') loadGuides();
+}
+
+// ---------- 상태(신호등) ----------
+async function refreshStatus() {
+  var r = await api('status', { project: S.project });
+  if (!r.ok) return;
+  S.actors = r.actors; S.projects = r.projects; S.turn = r.turn; S.locks = r.locks; S.defaultMinutes = r.defaultMinutes; S.now = r.now;
+  // 프로젝트·나 선택 목록 갱신
+  if (S.projects.indexOf(S.project) < 0) { S.project = S.projects[0] || ''; save('project', S.project); }
+  if (S.me && S.actors.indexOf(S.me) < 0) { S.me = ''; save('me', ''); }
+  fillSelect($('projectSel'), S.projects, S.project);
+  fillSelect($('meSel'), S.actors, S.me, '(선택)');
+  fillSelect($('turnSel'), S.actors, S.turn);
+  fillSelect($('cAssignee'), S.actors, S.me || S.actors[0]);
+  fillSelect($('logActorSel'), S.actors, $('logActorSel').value, '전체');
+  $('turnBadge').textContent = '🟢 지금 차례: ' + (S.turn || '-');
+  $('nowLabel').textContent = S.now;
+  if (!$('minInput').value) $('minInput').value = S.defaultMinutes;
+  if (r.project !== S.project && S.project) { refreshStatus(); return; } // 프로젝트가 바뀌어 다시 조회
+  renderLocks();
+  updateClaimHint();
+}
+function renderLocks() {
+  var box = $('lockList');
+  $('lockCount').textContent = S.locks.length ? '(' + S.locks.length + ')' : '';
+  if (!S.locks.length) { box.innerHTML = '<div class="card free">🟢 잡힌 자원 없음 — 전부 자유</div>'; return; }
+  box.innerHTML = S.locks.map(function (l) {
+    var mine = l.actor === S.me;
+    var canRelease = mine || S.me === '나';
+    var cls = 'card lock' + (l.minutesLeft <= 10 ? ' soon' : '') + (mine ? ' mine' : '');
+    return '<div class="' + cls + '">' +
+      '<div class="row" style="justify-content:space-between">' +
+        '<div><b>' + esc(l.resource) + '</b> <span class="tag actor">' + esc(l.actor) + '</span>' +
+          '<div class="muted">' + esc(l.actor) + ' 작업중 · ' + esc(hhmm(l.until)) + '까지 (' + l.minutesLeft + '분 남음' + (l.minutesLeft <= 10 ? ' ⚠ 만료 임박' : '') + ')' +
+          (l.memo ? ' · ' + esc(l.memo) : '') + '</div></div>' +
+        '<div class="row">' +
+          '<button class="btn small" data-act="extend" data-res="' + esc(l.resource) + '"' + (mine ? '' : ' disabled') + '>연장</button>' +
+          '<button class="btn small danger" data-act="release" data-res="' + esc(l.resource) + '" data-by="' + esc(l.actor) + '"' + (canRelease ? '' : ' disabled') + '>' + (mine ? '놓기' : '강제 놓기') + '</button>' +
+        '</div></div></div>';
+  }).join('');
+}
+function updateClaimHint() {
+  var res = $('resInput').value.trim();
+  var hint = $('claimHint'), btn = $('claimBtn');
+  hint.className = 'hint muted'; btn.disabled = false;
+  if (!res) { hint.textContent = '잡을 자원 이름을 넣으세요. 같은 프로젝트 안에서 이름이 같아야 같은 자원으로 봅니다.'; return; }
+  var hit = S.locks.filter(function (l) { return l.resource === res; })[0];
+  if (!hit) { hint.className = 'hint good'; hint.textContent = '🟢 비어 있음 — 잡을 수 있습니다.'; return; }
+  if (hit.actor === S.me) { hint.className = 'hint good'; hint.textContent = '내가 잡고 있음 · ' + hhmm(hit.until) + '까지. 다시 잡으면 연장됩니다.'; return; }
+  hint.className = 'hint bad'; hint.textContent = '🔴 ' + hit.actor + ' 작업중 · ' + hhmm(hit.until) + '까지'; btn.disabled = true;
+}
+async function doClaim(resource, memo, minutes) {
+  if (!needMe()) return;
+  resource = (resource || '').trim();
+  if (!resource) { toast('자원 이름을 넣으세요.', true); return; }
+  var r = await api('claim', { project: S.project, resource: resource, actor: S.me, memo: memo || '', minutes: minutes || S.defaultMinutes });
+  if (r.ok) toast((r.renewed ? '연장됨: ' : '잡음: ') + resource + ' · ' + hhmm(r.until) + '까지');
+  refreshStatus();
+}
+async function doRelease(resource, by) {
+  if (!needMe()) return;
+  if (by && by !== S.me && !confirm(by + '이(가) 잡은 "' + resource + '" 을 강제로 놓습니다. 진행할까요?')) return;
+  var r = await api('release', { project: S.project, resource: resource, actor: S.me });
+  if (r.ok) toast((r.force ? '강제 해제: ' : '놓음: ') + resource);
+  refreshStatus();
+}
+async function doHeartbeat(resource) {
+  if (!needMe()) return;
+  var r = await api('heartbeat', { project: S.project, resource: resource, actor: S.me });
+  if (r.ok) toast('연장: ' + resource + ' · ' + hhmm(r.until) + '까지');
+  refreshStatus();
+}
+async function doTurn() {
+  var to = $('turnSel').value;
+  if (!to) return;
+  var r = await api('turn', { actor: to, by: S.me || '나', project: S.project });
+  if (r.ok) toast('차례: ' + r.prev + ' → ' + r.turn);
+  refreshStatus();
+}
+
+// ---------- 보드 ----------
+async function loadBoard() {
+  var r = await api('card_list', { project: S.project });
+  if (!r.ok) return;
+  S.cards = r.cards;
+  renderBoard();
+}
+var PRI_ORDER = { '높음': 0, '보통': 1, '낮음': 2 };
+function renderBoard() {
+  ['할일', '하는중', '끝'].forEach(function (st) {
+    var list = S.cards.filter(function (c) { return c.status === st; })
+      .sort(function (a, b) { return (PRI_ORDER[a.priority] - PRI_ORDER[b.priority]) || (b.updated > a.updated ? 1 : -1); });
+    $('cnt-' + st).textContent = list.length ? '(' + list.length + ')' : '';
+    $('col-' + st).innerHTML = list.length ? list.map(cardHtml).join('') : '<div class="muted" style="padding:6px">없음</div>';
+  });
+}
+function cardHtml(c) {
+  var lockHit = S.locks.filter(function (l) { return l.resource === c.resource; })[0];
+  var actorOpts = S.actors.map(function (a) { return '<option' + (a === c.assignee ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('');
+  var priOpts = ['높음', '보통', '낮음'].map(function (p) { return '<option' + (p === c.priority ? ' selected' : '') + '>' + p + '</option>'; }).join('');
+  return '<div class="card kcard" data-id="' + esc(c.id) + '">' +
+    '<div class="title">' + esc(c.title) + '</div>' +
+    (c.resource ? '<div><button class="link" data-act="gores" data-res="' + esc(c.resource) + '">📎 ' + esc(c.resource) + '</button>' +
+      (lockHit ? ' <span class="tag" style="background:#ffebee;color:#c62828">🔴 ' + esc(lockHit.actor) + '</span>' : '') + '</div>' : '') +
+    (c.memo ? '<div class="muted">' + esc(c.memo) + '</div>' : '') +
+    '<div class="foot">' +
+      '<span><select data-act="assignee" title="담당">' + actorOpts + '</select> <select data-act="priority" title="우선순위">' + priOpts + '</select></span>' +
+      '<span>' +
+        '<button class="btn small" data-act="move" data-dir="-1"' + (c.status === '할일' ? ' disabled' : '') + '>◀</button> ' +
+        '<button class="btn small" data-act="move" data-dir="1"' + (c.status === '끝' ? ' disabled' : '') + '>▶</button>' +
+      '</span>' +
+    '</div>' +
+    '<div class="muted" style="font-size:11px">' + esc(c.id) + ' · ' + esc(c.updated) + '</div>' +
+  '</div>';
+}
+async function addCard() {
+  var title = $('cTitle').value.trim();
+  if (!title) { toast('제목을 넣으세요.', true); return; }
+  var r = await api('card_add', { project: S.project, title: title, actor: S.me || '나', assignee: $('cAssignee').value, priority: $('cPriority').value, resource: $('cResource').value, memo: $('cMemo').value });
+  if (r.ok) { toast('카드 추가: ' + title); $('cTitle').value = ''; $('cResource').value = ''; $('cMemo').value = ''; $('cardAddForm').style.display = 'none'; }
+  loadBoard();
+}
+async function moveCard(id, dir) {
+  var c = S.cards.filter(function (x) { return x.id === id; })[0];
+  if (!c) return;
+  var order = ['할일', '하는중', '끝'];
+  var to = order[order.indexOf(c.status) + dir];
+  if (!to) return;
+  var r = await api('card_move', { cardId: id, status: to, actor: S.me || '나' });
+  if (r.ok) toast(c.title + ': ' + r.from + ' → ' + r.status);
+  loadBoard();
+}
+async function editCard(id, field, value) {
+  var p = { cardId: id, actor: S.me || '나' }; p[field] = value;
+  var r = await api('card_edit', p);
+  if (r.ok && r.changed) toast('변경: ' + r.changes.join(' / '));
+  loadBoard();
+}
+
+// ---------- 일지 ----------
+async function loadLog() {
+  var r = await api('log_list', { project: $('logAllProjects').checked ? '' : S.project, actor: $('logActorSel').value, limit: 100 });
+  if (!r.ok) return;
+  $('logCount').textContent = '최근 ' + r.entries.length + '줄 (전체 ' + r.count + ')';
+  $('logBody').innerHTML = r.entries.map(function (e) {
+    return '<tr><td style="white-space:nowrap">' + esc(e.at) + '</td><td>' + esc(e.project) + '</td><td>' + esc(e.actor) + '</td>' +
+      '<td class="act-' + esc(e.action) + '">' + esc(e.action) + '</td><td>' + esc(e.target) + '</td><td>' + esc(e.detail) + '</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">기록 없음</td></tr>';
+}
+async function addNote() {
+  if (!needMe()) return;
+  var text = $('noteInput').value.trim();
+  if (!text) { toast('메모 내용을 넣으세요.', true); return; }
+  var r = await api('log', { project: S.project, actor: S.me, text: text });
+  if (r.ok) { toast('메모 남김'); $('noteInput').value = ''; }
+  loadLog();
+}
+
+// ---------- 토론 ----------
+function discussionInputTopic() { return $('discussTopicInput').value.trim(); }
+function discussionTopic() { return String(S.discussionSelectedTopic || ''); }
+function discussionTabIsOpen() {
+  var active = document.querySelector('nav button.on');
+  return !!active && active.dataset.tab === 'discuss';
+}
+function updateDiscussionActor() {
+  $('discussActor').textContent = S.me || '상단의 ‘나는’에서 선택';
+}
+function discussionItemsSignature(items) {
+  return JSON.stringify(items.map(function (item) {
+    return [item.id || '', item.topic || '', item.actor || '', item.text || '', item.parent || '', item.time || ''];
+  }));
+}
+function discussionItemsForTopic(items, topic) {
+  return items.filter(function (item) { return String(item.topic || '') === topic; });
+}
+function discussionTopicsFrom(items) {
+  var seen = {}, topics = [];
+  items.forEach(function (item) {
+    var topic = String(item.topic || '').trim();
+    if (topic && !seen[topic]) { seen[topic] = true; topics.push(topic); }
+  });
+  return topics;
+}
+function callDiscussionListQuiet(project) {
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .rpc(TOKEN, 'discuss_list', { project: project });
+  });
+}
+function renderDiscussionTopicChoices() {
+  $('discussTopicOptions').innerHTML = S.discussionTopics.map(function (topic) {
+    return '<option value="' + esc(topic) + '"></option>';
+  }).join('');
+  var selected = discussionTopic();
+  $('discussTopicMenu').innerHTML = S.discussionTopics.length ? S.discussionTopics.map(function (topic) {
+    return '<button type="button" data-topic="' + esc(topic) + '" class="' + (topic === selected ? 'on' : '') + '">' + esc(topic) + '</button>';
+  }).join('') : '<div class="muted" style="padding:6px">아직 등록된 토론 주제가 없습니다.</div>';
+}
+async function toggleDiscussionTopicMenu() {
+  var menu = $('discussTopicMenu');
+  if (!menu.hidden) { closeDiscussionTopicMenu(); return; }
+  await loadDiscussions({ auto: true });
+  renderDiscussionTopicChoices();
+  menu.hidden = false;
+  $('discussTopicBtn').textContent = '주제 닫기';
+  $('discussTopicBtn').setAttribute('aria-expanded', 'true');
+}
+function closeDiscussionTopicMenu() {
+  $('discussTopicMenu').hidden = true;
+  $('discussTopicBtn').textContent = '주제 보기';
+  $('discussTopicBtn').setAttribute('aria-expanded', 'false');
+}
+function captureDiscussionUiState() {
+  var state = { scrollY: window.scrollY, anchorId: '', anchorTop: 0, replies: {} };
+  var posts = Array.prototype.slice.call(document.querySelectorAll('#discussList .discussion-post'));
+  for (var i = 0; i < posts.length; i++) {
+    var rect = posts[i].getBoundingClientRect();
+    if (rect.bottom > 90) { state.anchorId = posts[i].dataset.id; state.anchorTop = rect.top; break; }
+  }
+  posts.forEach(function (post) {
+    var form = post.querySelector('.discussion-reply-form');
+    var textarea = form && form.querySelector('textarea');
+    if (!form || !textarea || (form.hidden && !textarea.value)) return;
+    state.replies[post.dataset.id] = {
+      text: textarea.value, open: !form.hidden, focused: document.activeElement === textarea,
+      start: textarea.selectionStart, end: textarea.selectionEnd
+    };
+  });
+  return state;
+}
+function restoreDiscussionUiState(state) {
+  if (!state) return;
+  var posts = Array.prototype.slice.call(document.querySelectorAll('#discussList .discussion-post'));
+  Object.keys(state.replies).forEach(function (id) {
+    var post = posts.filter(function (p) { return p.dataset.id === id; })[0];
+    if (!post) return;
+    var form = post.querySelector('.discussion-reply-form');
+    var textarea = form.querySelector('textarea');
+    var draft = state.replies[id];
+    textarea.value = draft.text; form.hidden = !draft.open;
+    if (draft.focused) {
+      try { textarea.focus({ preventScroll: true }); } catch (e) { textarea.focus(); }
+      try { textarea.setSelectionRange(draft.start, draft.end); } catch (e) {}
+    }
+  });
+  var anchor = posts.filter(function (post) { return post.dataset.id === state.anchorId; })[0];
+  if (anchor) window.scrollBy(0, anchor.getBoundingClientRect().top - state.anchorTop);
+  else window.scrollTo(0, state.scrollY);
+}
+async function loadDiscussions(options) {
+  options = options || {};
+  if (options.auto && discussionLoading) return;
+  var seq = ++discussionLoadSeq;
+  var project = S.project;
+  var input = $('discussTopicInput');
+  if (input.dataset.project !== project) {
+    input.dataset.project = project;
+    input.value = load('discuss_topic_' + project);
+    S.discussionSelectedTopic = input.value.trim();
+    S.discussions = []; S.discussionTopics = [];
+    discussionRenderedTopic = ''; discussionRenderedSignature = '';
+  }
+  if (!options.auto && !discussionRenderedTopic) {
+    $('discussList').innerHTML = '<div class="card muted">글을 불러오는 중…</div>';
+    $('discussCount').textContent = '불러오는 중';
+  }
+  updateDiscussionActor();
+  discussionLoading = true;
+  var r;
+  if (options.auto) {
+    try { r = await callDiscussionListQuiet(project); }
+    catch (e) { discussionLoading = false; return; }
+  } else {
+    r = await api('discuss_list', { project: project });
+  }
+  discussionLoading = false;
+  if (seq !== discussionLoadSeq || project !== S.project) return;
+  if (!r || !r.ok) {
+    if (!options.auto && !discussionRenderedTopic) {
+      $('discussCount').textContent = '';
+      $('discussList').innerHTML = '<div class="card muted">글 목록을 불러오지 못했습니다. 잠시 뒤 다시 시도하세요.</div>';
+    }
+    return;
+  }
+  var nextItems = Array.isArray(r.items) ? r.items : [];
+  var nextTopics = discussionTopicsFrom(nextItems);
+  var topicsChanged = JSON.stringify(nextTopics) !== JSON.stringify(S.discussionTopics);
+  S.discussions = nextItems;
+  S.discussionTopics = nextTopics;
+  if (!discussionTopic() && nextTopics.length) {
+    S.discussionSelectedTopic = nextTopics[0];
+    input.value = nextTopics[0];
+    save('discuss_topic_' + project, nextTopics[0]);
+  }
+  if (topicsChanged) renderDiscussionTopicChoices();
+  var topic = discussionTopic();
+  var signature = discussionItemsSignature(discussionItemsForTopic(nextItems, topic));
+  if (discussionRenderedTopic !== topic || discussionRenderedSignature !== signature) {
+    var uiState = options.auto ? captureDiscussionUiState() : null;
+    renderDiscussions(topic);
+    restoreDiscussionUiState(uiState);
+  }
+  startDiscussionPolling();
+}
+function selectDiscussionTopic(topic) {
+  if (typeof topic !== 'string') topic = document.getElementById('discussTopicInput').value.trim();
+  else topic = topic.trim();
+  S.discussionSelectedTopic = topic;
+  $('discussTopicInput').value = topic;
+  save('discuss_topic_' + S.project, topic);
+  $('discussHeading').textContent = topic ? '“' + topic + '” 글 목록' : '글 목록';
+  closeDiscussionTopicMenu();
+  renderDiscussionTopicChoices();
+  renderDiscussions(topic);
+  startDiscussionPolling();
+}
+function startDiscussionPolling() {
+  stopDiscussionPolling();
+  if (!discussionTabIsOpen() || !discussionTopic() || document.hidden) return;
+  discussionPollTimer = setInterval(function () { loadDiscussions({ auto: true }); }, DISCUSSION_POLL_MS);
+}
+function stopDiscussionPolling() {
+  if (discussionPollTimer) clearInterval(discussionPollTimer);
+  discussionPollTimer = null;
+}
+function renderDiscussions(topic) {
+  var items = discussionItemsForTopic(S.discussions, topic);
+  discussionRenderedTopic = topic;
+  discussionRenderedSignature = discussionItemsSignature(items);
+  $('discussHeading').textContent = topic ? '“' + topic + '” 글 목록' : '글 목록';
+  if (!topic) {
+    $('discussCount').textContent = '';
+    $('discussList').innerHTML = '<div class="card muted">주제를 입력해 첫 글을 올리거나, 기존 주제를 선택하세요.</div>';
+    return;
+  }
+  $('discussCount').textContent = items.length ? items.length + '개' : '';
+  if (!items.length) {
+    $('discussList').innerHTML = '<div class="card muted">이 주제에는 아직 글이 없습니다. 첫 의견을 올려보세요.</div>';
+    return;
+  }
+  var ids = {}, children = {}, visited = {};
+  items.forEach(function (item) { ids[String(item.id || '')] = true; });
+  items.forEach(function (item) {
+    var parent = String(item.parent || '');
+    if (!parent || !ids[parent]) parent = '';
+    (children[parent] || (children[parent] = [])).push(item);
+  });
+  function branch(item, depth) {
+    var id = String(item.id || '');
+    if (visited[id]) return '';
+    visited[id] = true;
+    var replies = (children[id] || []).map(function (reply) { return branch(reply, depth + 1); }).join('');
+    return discussionPostHtml(item, depth) + replies;
+  }
+  $('discussList').innerHTML = (children[''] || []).map(function (item) { return branch(item, 0); }).join('');
+}
+function discussionPostHtml(item, depth) {
+  var id = String(item.id || '');
+  return '<article class="card discussion-post' + (depth ? ' reply' : '') + '" style="--indent:' + (Math.min(depth, 5) * 22) + 'px" data-id="' + esc(id) + '" data-topic="' + esc(item.topic || '') + '">' +
+    '<div class="discussion-meta"><span class="tag actor">' + esc(item.actor || '-') + '</span>' +
+      '<span class="muted">' + esc(item.time || '') + '</span><span class="muted">' + esc(id) + '</span></div>' +
+    '<div class="discussion-text">' + esc(item.text || '') + '</div>' +
+    '<button class="btn small" data-act="reply-open">답글</button>' +
+    '<div class="discussion-reply-form" hidden>' +
+      '<textarea placeholder="답글을 쓰세요"></textarea>' +
+      '<div class="row" style="margin-top:6px"><button class="btn primary small" data-act="reply-submit">답글 올리기</button>' +
+      '<button class="btn small" data-act="reply-cancel">취소</button></div>' +
+    '</div></article>';
+}
+async function addDiscussion(topic, text, parent) {
+  if (!needMe()) return false;
+  topic = String(topic || '').trim(); text = String(text || '').trim();
+  if (!topic) { toast('주제를 입력하거나 선택하세요.', true); $('discussTopicInput').focus(); return false; }
+  if (!text) { toast(parent ? '답글 내용을 쓰세요.' : '글 내용을 쓰세요.', true); return false; }
+  var params = { project: S.project, topic: topic, actor: S.me, text: text };
+  if (parent) params.parent = parent;
+  var r = await api('discuss_add', params);
+  if (!r.ok) return false;
+  toast((parent ? '답글을 올렸습니다: ' : '글을 올렸습니다: ') + r.id);
+  $('discussTopicInput').value = topic;
+  S.discussionSelectedTopic = topic;
+  save('discuss_topic_' + S.project, topic);
+  await loadDiscussions();
+  return true;
+}
+async function postDiscussion() {
+  if (await addDiscussion(discussionInputTopic(), $('discussTextInput').value, '')) $('discussTextInput').value = '';
+}
+
+// ---------- 지시문 ----------
+async function loadGuides() {
+  var r = await api('guide_list', { project: S.project });
+  if (!r.ok) return;
+  S.guides = r.guides;
+  $('guideList').innerHTML = S.guides.length ? S.guides.map(function (g) {
+    return '<div class="card"><div class="row" style="justify-content:space-between">' +
+      '<div><b>' + esc(g.title) + '</b> <span class="tag">v' + g.version + '</span>' +
+        (g.tags ? g.tags.split(',').map(function (t) { return '<span class="tag">' + esc(t.trim()) + '</span>'; }).join('') : '') +
+        '<div class="muted">' + esc(g.updated) + '</div></div>' +
+      '<div class="row">' +
+        '<button class="btn small" data-act="view" data-title="' + esc(g.title) + '">보기</button>' +
+        '<button class="btn small" data-act="copy" data-title="' + esc(g.title) + '">복사</button>' +
+        '<button class="btn small" data-act="newver" data-title="' + esc(g.title) + '" data-tags="' + esc(g.tags) + '">새 버전 저장</button>' +
+      '</div></div></div>';
+  }).join('') : '<div class="card muted">이 프로젝트의 지시문이 없습니다. [+ 새 지시문]으로 만드세요.</div>';
+}
+async function fetchGuide(title) {
+  var r = await api('guide_get', { project: S.project, title: title });
+  return r.ok ? r : null;
+}
+async function viewGuide(title) {
+  var g = await fetchGuide(title); if (!g) return;
+  openModal(g.title + ' (v' + g.version + ')', '<pre class="guide">' + esc(g.content) + '</pre>' +
+    '<div class="row"><button class="btn" id="mCopy">복사</button></div>');
+  $('mCopy').onclick = async function () { toast((await copyText(g.content)) ? '복사됨' : '복사 실패 — 본문을 직접 선택하세요', false); };
+}
+async function copyGuide(title) {
+  var g = await fetchGuide(title); if (!g) return;
+  toast((await copyText(g.content)) ? '복사됨: ' + title : '복사 실패 — [보기]에서 직접 선택하세요', false);
+}
+async function editGuide(title, tags) {
+  var content = '';
+  if (title) { var g = await fetchGuide(title); if (g) content = g.content; }
+  openModal(title ? '새 버전 저장: ' + title : '새 지시문',
+    '<div class="row"><input id="gTitle" class="grow" placeholder="제목 *" value="' + esc(title || '') + '"' + (title ? ' readonly' : '') + '>' +
+    '<input id="gTags" class="grow" placeholder="태그 (쉼표)" value="' + esc(tags || '') + '"></div>' +
+    '<textarea id="gContent" style="margin-top:8px" placeholder="내용 *">' + esc(content) + '</textarea>' +
+    '<div class="row" style="margin-top:8px"><button class="btn primary" id="gSave">저장</button><span class="muted">같은 제목이면 버전+1로 새 행이 쌓입니다. 이전 버전은 남습니다.</span></div>');
+  $('gSave').onclick = async function () {
+    var r = await api('guide_save', { project: S.project, title: $('gTitle').value, tags: $('gTags').value, content: $('gContent').value, actor: S.me || '나' });
+    if (r.ok) { toast('저장: ' + r.title + ' v' + r.version); closeModal(); loadGuides(); }
+  };
+}
+async function copyPrompt() {
+  if (!needMe()) return;
+  var r = await api('prompt', { project: S.project, actor: S.me });
+  if (!r.ok) return;
+  var copied = await copyText(r.prompt);
+  openModal('에이전트 프롬프트 — ' + S.me + ' / ' + S.project,
+    '<p class="muted">' + (copied ? '✅ 클립보드에 복사됨. ' : '⚠ 자동 복사 실패 — 아래를 직접 선택해 복사하세요. ') +
+    '클로드코드·코덱스 세션 첫머리에 붙여넣으세요. (토큰이 들어 있으니 외부에 올리지 마세요)</p>' +
+    '<pre class="guide" id="promptPre">' + esc(r.prompt) + '</pre>' +
+    '<div class="row"><button class="btn" id="mCopy">다시 복사</button></div>');
+  $('mCopy').onclick = async function () { toast((await copyText(r.prompt)) ? '복사됨' : '복사 실패', false); };
+}
+
+// ---------- 이벤트 연결 ----------
+function bind() {
+  document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { showTab(b.dataset.tab); }; });
+  $('projectSel').onchange = async function () {
+    S.project = this.value; save('project', S.project);
+    await refreshStatus();                         // 잠금·행위자 목록을 새 프로젝트로 바꾼 뒤에 탭을 그린다
+    var t = load('tab'); if (t && t !== 'lock') showTab(t);
+  };
+  $('meSel').onchange = function () { S.me = this.value; save('me', S.me); renderLocks(); updateClaimHint(); renderBoard(); updateDiscussionActor(); };
+  $('refreshBtn').onclick = function () { showTab(load('tab') || 'lock'); };
+  $('resInput').oninput = updateClaimHint;
+  $('resInput').onkeydown = function (e) { if (e.key === 'Enter') $('claimBtn').click(); };
+  $('claimBtn').onclick = function () { doClaim($('resInput').value, $('memoInput').value, Number($('minInput').value) || S.defaultMinutes); };
+  $('lockList').onclick = function (e) {
+    var b = e.target.closest('button[data-act]'); if (!b || b.disabled) return;
+    if (b.dataset.act === 'release') doRelease(b.dataset.res, b.dataset.by);
+    if (b.dataset.act === 'extend') doHeartbeat(b.dataset.res);
+  };
+  $('turnBtn').onclick = doTurn;
+
+  $('cardAddToggle').onclick = function () { var f = $('cardAddForm'); f.style.display = f.style.display === 'none' ? '' : 'none'; if (f.style.display !== 'none') $('cTitle').focus(); };
+  $('cardAddCancel').onclick = function () { $('cardAddForm').style.display = 'none'; };
+  $('cardAddBtn').onclick = addCard;
+  document.querySelector('.kanban').onclick = function (e) {
+    var b = e.target.closest('[data-act]'); if (!b || b.tagName === 'SELECT') return;
+    var card = e.target.closest('.kcard'); if (!card) return;
+    if (b.dataset.act === 'move' && !b.disabled) moveCard(card.dataset.id, Number(b.dataset.dir));
+    if (b.dataset.act === 'gores') { $('resInput').value = b.dataset.res; showTab('lock'); $('resInput').focus(); }
+  };
+  document.querySelector('.kanban').onchange = function (e) {
+    var sel = e.target.closest('select[data-act]'); if (!sel) return;
+    var card = e.target.closest('.kcard'); if (!card) return;
+    editCard(card.dataset.id, sel.dataset.act, sel.value);
+  };
+
+  $('noteBtn').onclick = addNote;
+  $('noteInput').onkeydown = function (e) { if (e.key === 'Enter') addNote(); };
+  $('logActorSel').onchange = loadLog;
+  $('logAllProjects').onchange = loadLog;
+  $('logRefresh').onclick = loadLog;
+
+  $('discussTopicBtn').onclick = toggleDiscussionTopicMenu;
+  $('discussTopicInput').onchange = selectDiscussionTopic;
+  $('discussTopicInput').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); selectDiscussionTopic(); } };
+  $('discussTopicMenu').onclick = function (e) {
+    var b = e.target.closest('button[data-topic]'); if (!b) return;
+    selectDiscussionTopic(b.dataset.topic);
+  };
+  $('discussPostBtn').onclick = postDiscussion;
+  $('discussRefresh').onclick = loadDiscussions;
+  $('discussList').onclick = async function (e) {
+    var b = e.target.closest('button[data-act]'); if (!b) return;
+    var post = e.target.closest('.discussion-post'); if (!post) return;
+    var form = post.querySelector('.discussion-reply-form');
+    if (b.dataset.act === 'reply-open') {
+      document.querySelectorAll('.discussion-reply-form').forEach(function (f) { if (f !== form) f.hidden = true; });
+      form.hidden = false; form.querySelector('textarea').focus();
+    }
+    if (b.dataset.act === 'reply-cancel') { form.hidden = true; form.querySelector('textarea').value = ''; }
+    if (b.dataset.act === 'reply-submit') {
+      var replyText = form.querySelector('textarea');
+      if (await addDiscussion(post.dataset.topic, replyText.value, post.dataset.id)) replyText.value = '';
+    }
+  };
+
+  $('guideNewBtn').onclick = function () { editGuide('', ''); };
+  $('promptCopyBtn').onclick = copyPrompt;
+  $('guideList').onclick = function (e) {
+    var b = e.target.closest('button[data-act]'); if (!b) return;
+    if (b.dataset.act === 'view') viewGuide(b.dataset.title);
+    if (b.dataset.act === 'copy') copyGuide(b.dataset.title);
+    if (b.dataset.act === 'newver') editGuide(b.dataset.title, b.dataset.tags);
+  };
+  $('modalClose').onclick = closeModal;
+  $('modal').onclick = function (e) { if (e.target === this) closeModal(); };
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopDiscussionPolling();
+    else if (discussionTabIsOpen()) { loadDiscussions({ auto: true }); startDiscussionPolling(); }
+  });
+
+  // 신호등 탭이 열려 있으면 60초마다 자동 새로고침 (만료 임박 색 갱신)
+  setInterval(function () { if (document.querySelector('nav button.on').dataset.tab === 'lock') refreshStatus(); }, 60000);
+}
+
+// ---------- 시작 ----------
+(async function init() {
+  S.project = load('project'); S.me = load('me');
+  bind();
+  await refreshStatus();
+  var t = load('tab');
+  if (t && t !== 'lock') showTab(t);
+})();
+</script>
+</body>
+</html>

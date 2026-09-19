@@ -1,0 +1,14 @@
+# 줄바꿈 고정 — 받는 사람이 어느 OS에서 clone 해도 스크립트가 그대로 돌게 한다.
+* text=auto eol=lf
+
+# PowerShell 은 CRLF + UTF-8 BOM 이어야 윈도우에서 한글이 안 깨진다
+*.ps1 text eol=crlf working-tree-encoding=UTF-8
+
+# bash 는 반드시 LF (CR 붙으면 실행 자체가 실패)
+*.sh  text eol=lf
+
+*.gs   text eol=lf
+*.html text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf

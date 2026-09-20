@@ -122,16 +122,28 @@ def build_args(worker, prompt):
         a += extra
         a += [prompt]
     elif cli == "hermes":
-        a = ["--yolo", "-z"] + list(extra) + [prompt]
+        a = ["--yolo"]
+        if model: a += ["-m", model]
+        if effort: a += ["--reasoning", effort]
+        a += list(extra)
+        a += ["-z", prompt]     # -z 의 값이 프롬프트다 → 반드시 맨 뒤
     else:
         a = list(extra) + [prompt]
     return a
 
 
-def resolve_cmd(cli, args):
-    """윈도우에서 npm 설치형 CLI는 claude.cmd 같은 배치 껍데기라, 바로 못 부른다.
-       shutil.which 로 실제 경로를 찾고, .cmd/.bat 이면 cmd /c 로 감싼다(PowerShell '&' 와 같은 효과)."""
-    exe = shutil.which(cli) or cli
+def worker_exe(worker):
+    """담당의 실행파일 경로를 정한다. 설정에 '경로'가 있으면 그걸 쓰고(윈도우 전체경로 등),
+       없으면 PATH에서 cli 이름으로 찾는다(claude·codex 처럼 설치된 명령)."""
+    path = (worker.get("경로") or "").strip()
+    if path:
+        return os.path.expanduser(os.path.expandvars(path))
+    return shutil.which(worker["cli"]) or worker["cli"]
+
+
+def resolve_cmd(exe, args):
+    """실행파일 경로를 받아, 윈도우 배치 껍데기(.cmd/.bat)면 cmd /c 로 감싼다(PowerShell '&' 와 같은 효과).
+       .exe·일반 실행파일은 그대로 부른다."""
     if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
         return ["cmd", "/c", exe] + args
     return [exe] + args
@@ -151,7 +163,7 @@ def run_agent(worker, prompt_text, cwd, timeout=None, on_beat=None):
 
     read_instr = "Read the UTF-8 text file at '%s' and do exactly what it says." % prompt_file
     args = build_args(worker, read_instr)
-    cmd = resolve_cmd(worker["cli"], args)
+    cmd = resolve_cmd(worker_exe(worker), args)
     try:
         p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except FileNotFoundError:
@@ -410,10 +422,18 @@ def main():
     for w in (work.get("담당") or []):
         if w.get("사용") is False or not w.get("cli") or not w.get("이름"):
             continue
-        if shutil.which(w["cli"]):
+        path = (w.get("경로") or "").strip()
+        if path:
+            exe = os.path.expanduser(os.path.expandvars(path))
+            ok = os.path.exists(exe)
+            why = "지정한 경로에 실행파일이 없습니다: %s" % exe
+        else:
+            ok = bool(shutil.which(w["cli"]))
+            why = "명령 '%s' 을 찾을 수 없습니다(미설치·PATH 미등록). 설정 담당에 '경로'로 전체경로를 줄 수도 있습니다." % w["cli"]
+        if ok:
             roster[w["이름"]] = w
         else:
-            print("↷ '%s' 은(는) 뺍니다 — 명령 '%s' 을 찾을 수 없습니다(미설치 또는 PATH 미등록)." % (w["이름"], w["cli"]))
+            print("↷ '%s' 은(는) 뺍니다 — %s" % (w["이름"], why))
     if not roster:
         die("작업 가능한 담당 CLI가 하나도 없습니다.\n"
             "  → 설정 작업.담당 의 cli 이름을 확인하고, 그 CLI를 설치·로그인하세요.\n"

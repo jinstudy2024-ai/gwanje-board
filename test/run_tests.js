@@ -282,6 +282,46 @@ test('13. Index.html — 화면 스크립트 문법 · 버전 배선', () => {
   ok(/verLabel'\)\.textContent/.test(js), 'verLabel 에 값을 그리는 코드가 있음');
 });
 
+test('14. 작업 드라이버 릴레이 — 할일 카드 → claim → 하는중 → release → 끝', () => {
+  // 작업 드라이버가 보드에서 밟는 전이(잡기→하는중→풀기→끝)를 보드가 그대로 지원하는지 본다.
+  // (실제 CLI 실행은 여기서 못 하니, 드라이버가 부르는 API 전이만 검증)
+  mock.install(globalThis); globalThis.cfgCache_ = null; setupSheets();
+  TOKEN = readCfg_()['토큰'];
+  const A = '클로드';
+  const add = call('card_add', { project: '연습', title: '가닥수 함수 고치기', assignee: A, priority: '높음', resource: 'app/Code.gs', memo: '반올림 버그' });
+  ok(add.ok, '할일 카드 생성'); const cid = add.cardId;
+
+  // 드라이버: 카드 읽어 할일만 고름
+  const todo = call('card_list', { project: '연습' }).cards.filter(c => c.status === '할일');
+  ok(todo.some(c => c.id === cid), 'card_list 에서 할일 카드 보임');
+  const card = todo.find(c => c.id === cid);
+
+  // 1) 잡기
+  const cl = call('claim', { project: '연습', resource: card.resource, actor: A, memo: '작업시작 ' + cid });
+  ok(cl.ok, 'claim 성공'); 
+  // 다른 이가 같은 자원 잡으면 locked (교통정리)
+  eq(call('claim', { project: '연습', resource: card.resource, actor: 'ChatGPT' }).error, 'locked', '남이 잡으면 locked');
+  // 2) 하는중
+  eq(call('card_move', { cardId: cid, status: '하는중', actor: A }).status, '하는중', '하는중 표시');
+  // 3) 성공 → 풀기 → 끝
+  ok(call('release', { project: '연습', resource: card.resource, actor: A }).ok, 'release 성공');
+  eq(call('card_move', { cardId: cid, status: '끝', actor: A }).status, '끝', '끝으로 이동');
+  ok(call('log', { project: '연습', actor: A, text: cid + ' 완료' }).ok, '완료 로그');
+
+  // 최종: 카드 끝, 잠금 해제, 일지에 claim·release·card_move·note 남음
+  eq(call('card_list', { project: '연습' }).cards.find(c => c.id === cid).status, '끝', '최종 상태 끝');
+  eq(call('status', { project: '연습' }).locks.length, 0, '유효 잠금 없음(풀림)');
+  const acts = logRows().map(r => r['행동']);
+  ok(acts.includes('claim') && acts.includes('release') && acts.includes('card_move') && acts.includes('note'), '일지에 릴레이 기록');
+
+  // 실패 경로: 되돌림(끝이 아닌 할일)도 보드가 지원하는가
+  const add2 = call('card_add', { project: '연습', title: '실패할 카드', assignee: A, resource: 'app/Index.html', memo: 'x' });
+  call('claim', { project: '연습', resource: 'app/Index.html', actor: A });
+  call('card_move', { cardId: add2.cardId, status: '하는중', actor: A });
+  call('release', { project: '연습', resource: 'app/Index.html', actor: A });
+  eq(call('card_move', { cardId: add2.cardId, status: '할일', actor: A }).status, '할일', '실패 시 할일로 되돌림');
+});
+
 // ---- 결과 출력 ----
 let totalPass = 0, totalFail = 0;
 console.log('\n=== Code.gs 테스트 결과 ===');

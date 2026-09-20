@@ -98,6 +98,16 @@ else:
     warn("discuss/자동토론.config.json 없음 (자동토론 쓸 때만 필요)",
          "자동토론.config.example.json 을 복사해 만드세요")
 
+# 작업 드라이버 설정(client/gwanje.config.json 의 작업 블록)은 있으면 담당 CLI 이름만 가볍게 본다
+if cli_cfg and isinstance(cli_cfg.get('작업'), dict):
+    담당 = [w for w in (cli_cfg['작업'].get('담당') or []) if w.get('사용', True) and w.get('cli')]
+    있음 = [w['cli'] for w in 담당 if shutil.which(w['cli'])]
+    if 담당 and not 있음:
+        bad("작업 드라이버: 담당 CLI가 하나도 설치돼 있지 않습니다",
+            "작업 블록의 cli 이름을 확인하고 그 CLI를 설치·로그인하세요 (docs/5_작업드라이버.md)")
+    elif 있음:
+        ok("작업 드라이버 — 담당 CLI %d개 준비됨 (%s)" % (len(있음), ", ".join(있음)))
+
 # ---------------------------------------------------------------- 3. 관제판 연결
 def api(action, params=None):
     q = {'token': token, 'action': action}

@@ -22,12 +22,19 @@
      python 작업드라이버.py 내프로젝트 once
      python 작업드라이버.py 내프로젝트 watch  # 폴링(옵션)
 """
-import io, json, os, re, shutil, subprocess, sys, time
+import io, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 import urllib.parse, urllib.request, urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                 # 저장소 루트 = 기본 작업폴더
 CONFIG = os.path.join(ROOT, "client", "gwanje.config.json")
+
+# 프롬프트는 파일에 쓰고 CLI에게 "그 파일 읽어라"로 넘긴다(자동토론 v1.3 방식):
+#  - 긴 한글 프롬프트를 명령줄 인자로 넘기면 윈도우에서 깨지거나 잘린다.
+#  - ASCII 경로(임시폴더)에 두어야 안전하다.
+TMP = tempfile.gettempdir()
+PROMPT_FILE = os.path.join(TMP, "gwanje_work_prompt.txt")
+READ = "Read the UTF-8 text file at '%s' and do exactly what it says." % PROMPT_FILE
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # 윈도우 콘솔(CP949) 기호 깨짐 예방
@@ -80,6 +87,7 @@ def api(cfg, action, params, timeout=30):
 
 # ---------------------------------------------------------------- CLI 실행 (자동토론 run_agent 와 동일 규칙)
 def build_args(worker, prompt):
+    """cli 뒤에 붙을 인자 목록만 반환한다(cli 실행파일 해석은 resolve_cmd 에서)."""
     cli = worker["cli"]
     model = (worker.get("모델") or "").strip()
     effort = (worker.get("추론강도") or "").strip()
@@ -98,18 +106,48 @@ def build_args(worker, prompt):
         a = ["--yolo", "-z"] + list(extra) + [prompt]
     else:
         a = list(extra) + [prompt]
-    return [cli] + a
+    return a
 
 
-def run_agent(worker, prompt, cwd, timeout=None, on_beat=None):
-    """CLI를 작업폴더에서 실행. (성공여부 bool, 마지막 한 줄 요약, 사유) 반환."""
-    args = build_args(worker, prompt)
+def resolve_cmd(cli, args):
+    """윈도우에서 npm 설치형 CLI는 claude.cmd 같은 배치 껍데기라, 바로 못 부른다.
+       shutil.which 로 실제 경로를 찾고, .cmd/.bat 이면 cmd /c 로 감싼다(PowerShell '&' 와 같은 효과)."""
+    exe = shutil.which(cli) or cli
+    if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
+        return ["cmd", "/c", exe] + args
+    return [exe] + args
+
+
+def run_agent(worker, prompt_text, cwd, timeout=None, on_beat=None):
+    """프롬프트를 파일에 쓰고, CLI에게 그 파일을 읽어 실행하게 한다.
+       (성공여부 bool, 마지막 한 줄 요약, 사유) 반환.
+       ※ 출력을 대기 중에도 계속 읽어 비운다(파이프 버퍼가 차서
+          CLI가 멈추는 교착을 막기 위함). 안 그러면 출력 많은 CLI가 일을
+          끝내고도 종료하지 못하고 매달린다."""
     try:
-        p = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        io.open(PROMPT_FILE, "w", encoding="utf-8").write(prompt_text)
+    except Exception as e:
+        return False, "", "프롬프트 파일을 쓰지 못했습니다: %s" % e
+    args = build_args(worker, READ)
+    cmd = resolve_cmd(worker["cli"], args)
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except FileNotFoundError:
         return False, "", "명령 '%s' 을 찾을 수 없습니다" % worker["cli"]
     except Exception as e:
         return False, "", "실행 오류: %s" % e
+
+    # 출력을 백그라운드에서 계속 읽어 파이프를 비운다(교착 방지).
+    chunks = []
+    def _drain():
+        try:
+            for line in iter(p.stdout.readline, b""):
+                chunks.append(line)
+        except Exception:
+            pass
+    reader = threading.Thread(target=_drain)
+    reader.daemon = True
+    reader.start()
 
     start = time.time()
     last_beat = start
@@ -120,15 +158,17 @@ def run_agent(worker, prompt, cwd, timeout=None, on_beat=None):
         now = time.time()
         if timeout and (now - start) > timeout:
             p.kill()
+            reader.join(timeout=5)
             return False, "", "제한시간(%d초) 초과" % timeout
         if on_beat and (now - last_beat) >= HEARTBEAT_SEC:
             on_beat()
             last_beat = now
-    out = ""
+    reader.join(timeout=5)
     try:
-        out = (p.stdout.read() or b"").decode("utf-8", "replace")
+        p.stdout.close()
     except Exception:
         pass
+    out = (b"".join(chunks)).decode("utf-8", "replace")
     tail = ""
     for line in reversed(out.splitlines()):
         if line.strip():
@@ -140,8 +180,8 @@ def run_agent(worker, prompt, cwd, timeout=None, on_beat=None):
 
 
 def test_agent(worker):
-    """실제 작업과 똑같은 방식으로 한 번 불러 본다. 통과=None, 실패=이유."""
-    probe = os.path.join(HERE, ".probe_%s.txt" % worker["cli"])
+    """실제 작업과 똑같은 실행 경로(run_agent)로 한 번 불러 본다. 통과=None, 실패=이유."""
+    probe = os.path.join(TMP, "gwanje_probe_%s.txt" % worker["cli"])
     try:
         if os.path.exists(probe): os.remove(probe)
     except Exception:
@@ -150,6 +190,8 @@ def test_agent(worker):
            "Do not print anything. Do not create or modify any other file." % probe)
     ok, _, why = run_agent(worker, cmd, cwd=HERE, timeout=None)
     if not os.path.exists(probe):
+        if why:   # 실행 자체가 안 된 경우(명령 못 찾음 등) 진짜 사유를 보여준다
+            return why
         return "불렀지만 파일을 쓰지 못했습니다 — 로그인 안 됨 · 구독 한도 초과 · 모델 이름 오류 중 하나입니다"
     try:
         v = io.open(probe, encoding="utf-8", errors="replace").read()

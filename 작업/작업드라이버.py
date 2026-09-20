@@ -13,6 +13,8 @@
    3) 설정은 client/gwanje.config.json(url·token·project·actor) 을 재사용하고, "작업" 블록만 더 읽는다.
    4) 비용 상한: 한 번에 처리할 최대 카드 수를 두고, 실행 전 확인 1회.
    5) 사전검증은 실제 작업과 똑같은 실행 경로로 부른다(그래야 대상이 아니라 그 방식을 검증하는 사고를 막는다).
+   6) 병렬(옵션): 여러 카드를 담당별로 동시에 처리한다. 같은 파일을 가리키는 카드는
+      자동으로 순서대로 돌려 충돌을 막는다(설정 작업.병렬 / 최대동시).
 
   ⚠ 작업 CLI는 파일쓰기 권한(claude --dangerously-skip-permissions 등)으로 돈다.
      실행 범위를 '작업폴더' 하나로 한정하되, 지울 수 없는 중요한 원본이 든 폴더에서는 돌리지 마라.
@@ -29,12 +31,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                 # 저장소 루트 = 기본 작업폴더
 CONFIG = os.path.join(ROOT, "client", "gwanje.config.json")
 
-# 프롬프트는 파일에 쓰고 CLI에게 "그 파일 읽어라"로 넘긴다(자동토론 v1.3 방식):
-#  - 긴 한글 프롬프트를 명령줄 인자로 넘기면 윈도우에서 깨지거나 잘린다.
-#  - ASCII 경로(임시폴더)에 두어야 안전하다.
+# 프롬프트는 매 실행마다 임시폴더에 '고유' 파일로 쓰고 CLI에게 "그 파일 읽어라"로 넘긴다:
+#  - 긴 한글 프롬프트를 명령줄 인자로 넘기면 윈도우에서 깨지거나 잘린다. ASCII 경로가 안전하다.
+#  - 병렬로 여러 CLI를 돌릴 때 프롬프트가 서로 안 섞이도록 파일을 매번 새로 만든다.
 TMP = tempfile.gettempdir()
-PROMPT_FILE = os.path.join(TMP, "gwanje_work_prompt.txt")
-READ = "Read the UTF-8 text file at '%s' and do exactly what it says." % PROMPT_FILE
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # 윈도우 콘솔(CP949) 기호 깨짐 예방
@@ -44,6 +44,25 @@ except Exception:
 HEARTBEAT_SEC = 1800     # 긴 작업이면 30분마다 잠금 연장
 POLL_SEC = 20            # watch 모드 폴링 간격
 PLACEHOLDER = re.compile(r"여기에|<.*>|\.\.\.|…|YOUR_|xxx", re.I)
+
+# 병렬 출력이 뒤섞이지 않게 화면 출력은 한 곳으로 모은다.
+PRINT_LOCK = threading.Lock()
+
+
+def say(msg):
+    with PRINT_LOCK:
+        print(msg)
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+
+def _rm(path):
+    try:
+        os.remove(path)
+    except Exception:
+        pass
 
 
 def die(msg, code=2):
@@ -119,22 +138,27 @@ def resolve_cmd(cli, args):
 
 
 def run_agent(worker, prompt_text, cwd, timeout=None, on_beat=None):
-    """프롬프트를 파일에 쓰고, CLI에게 그 파일을 읽어 실행하게 한다.
+    """프롬프트를 '고유' 임시파일에 쓰고, CLI에게 그 파일을 읽어 실행하게 한다.
        (성공여부 bool, 마지막 한 줄 요약, 사유) 반환.
-       ※ 출력을 대기 중에도 계속 읽어 비운다(파이프 버퍼가 차서
-          CLI가 멈추는 교착을 막기 위함). 안 그러면 출력 많은 CLI가 일을
-          끝내고도 종료하지 못하고 매달린다."""
+       ※ 출력을 대기 중에도 계속 읽어 비운다(파이프 버퍼가 차서 CLI가 멈추는 교착을 막기 위함).
+       ※ 프롬프트 파일을 매번 새로 만들어, 병렬로 여러 CLI가 돌아도 서로 안 섞인다."""
     try:
-        io.open(PROMPT_FILE, "w", encoding="utf-8").write(prompt_text)
+        fd, prompt_file = tempfile.mkstemp(prefix="gwanje_work_", suffix=".txt", dir=TMP)
+        os.close(fd)
+        io.open(prompt_file, "w", encoding="utf-8").write(prompt_text)
     except Exception as e:
         return False, "", "프롬프트 파일을 쓰지 못했습니다: %s" % e
-    args = build_args(worker, READ)
+
+    read_instr = "Read the UTF-8 text file at '%s' and do exactly what it says." % prompt_file
+    args = build_args(worker, read_instr)
     cmd = resolve_cmd(worker["cli"], args)
     try:
         p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except FileNotFoundError:
+        _rm(prompt_file)
         return False, "", "명령 '%s' 을 찾을 수 없습니다" % worker["cli"]
     except Exception as e:
+        _rm(prompt_file)
         return False, "", "실행 오류: %s" % e
 
     # 출력을 백그라운드에서 계속 읽어 파이프를 비운다(교착 방지).
@@ -149,34 +173,37 @@ def run_agent(worker, prompt_text, cwd, timeout=None, on_beat=None):
     reader.daemon = True
     reader.start()
 
-    start = time.time()
-    last_beat = start
-    while True:
-        if p.poll() is not None:
-            break
-        time.sleep(1)
-        now = time.time()
-        if timeout and (now - start) > timeout:
-            p.kill()
-            reader.join(timeout=5)
-            return False, "", "제한시간(%d초) 초과" % timeout
-        if on_beat and (now - last_beat) >= HEARTBEAT_SEC:
-            on_beat()
-            last_beat = now
-    reader.join(timeout=5)
     try:
-        p.stdout.close()
-    except Exception:
-        pass
-    out = (b"".join(chunks)).decode("utf-8", "replace")
-    tail = ""
-    for line in reversed(out.splitlines()):
-        if line.strip():
-            tail = line.strip()[:120]
-            break
-    if p.returncode != 0:
-        return False, tail, "CLI가 오류로 끝났습니다(코드 %s)" % p.returncode
-    return True, tail, ""
+        start = time.time()
+        last_beat = start
+        while True:
+            if p.poll() is not None:
+                break
+            time.sleep(1)
+            now = time.time()
+            if timeout and (now - start) > timeout:
+                p.kill()
+                reader.join(timeout=5)
+                return False, "", "제한시간(%d초) 초과" % timeout
+            if on_beat and (now - last_beat) >= HEARTBEAT_SEC:
+                on_beat()
+                last_beat = now
+        reader.join(timeout=5)
+        try:
+            p.stdout.close()
+        except Exception:
+            pass
+        out = (b"".join(chunks)).decode("utf-8", "replace")
+        tail = ""
+        for line in reversed(out.splitlines()):
+            if line.strip():
+                tail = line.strip()[:120]
+                break
+        if p.returncode != 0:
+            return False, tail, "CLI가 오류로 끝났습니다(코드 %s)" % p.returncode
+        return True, tail, ""
+    finally:
+        _rm(prompt_file)
 
 
 def test_agent(worker):
@@ -226,21 +253,22 @@ def make_prompt(card, rule):
 
 
 # ---------------------------------------------------------------- 카드 한 장 처리 (잡기→하는중→작업→끝/되돌림)
-def process_card(cfg, project, actor, card, worker, workdir, rule, timeout):
+def process_card(cfg, project, actor, card, worker, workdir, rule, timeout, label=""):
     cid = card["id"]
     resource = card.get("resource") or card.get("title") or cid
     title = card.get("title", "")
-    print("  ----- %s -----  담당 %s(%s)  자원 %s" % (title, card.get("assignee"), worker["cli"], resource))
+    tag = ("[%s] " % label) if label else ""
+    say("  %s----- %s -----  담당 %s(%s)  자원 %s" % (tag, title, card.get("assignee"), worker["cli"], resource))
 
     # 1) 잡기 — 남이 잡은 파일이면 건너뛴다(교통정리)
     r = api(cfg, "claim", {"project": project, "resource": resource, "actor": actor,
                            "memo": "작업시작 " + cid})
     if not r.get("ok"):
         if r.get("error") == "locked":
-            print("    ↷ '%s' 은(는) %s 가 잡고 있어 건너뜁니다." % (resource, r.get("by")))
+            say("    %s↷ '%s' 은(는) %s 가 잡고 있어 건너뜁니다." % (tag, resource, r.get("by")))
             api(cfg, "log", {"project": project, "actor": actor, "text": "%s 건너뜀 — %s 가 잡음" % (cid, r.get("by"))})
         else:
-            print("    ✗ 잡기 실패: %s" % r.get("error"))
+            say("    %s✗ 잡기 실패: %s" % (tag, r.get("error")))
         return "skip"
 
     # 2) 하는중 표시
@@ -256,41 +284,101 @@ def process_card(cfg, project, actor, card, worker, workdir, rule, timeout):
         api(cfg, "release", {"project": project, "resource": resource, "actor": actor})
         api(cfg, "card_move", {"cardId": cid, "status": "끝", "actor": actor})
         api(cfg, "log", {"project": project, "actor": actor, "text": "%s 완료 — %s" % (cid, tail or "요약 없음")})
-        print("    ✓ 완료 → 끝. %s" % (tail or ""))
+        say("    %s✓ 완료 → 끝. %s" % (tag, tail or ""))
         return "done"
     else:
         # 되돌림: 놓고 → 할일로 → 사유 기록
         api(cfg, "release", {"project": project, "resource": resource, "actor": actor})
         api(cfg, "card_move", {"cardId": cid, "status": "할일", "actor": actor})
         api(cfg, "log", {"project": project, "actor": actor, "text": "%s 실패 — %s" % (cid, why)})
-        print("    ✗ 실패 → 할일로 되돌림. %s" % why)
+        say("    %s✗ 실패 → 할일로 되돌림. %s" % (tag, why))
         return "fail"
+
+
+# ---------------------------------------------------------------- 병렬: 같은 파일은 드라이버 안에서도 순서대로
+# 한 드라이버는 같은 이름(actor)으로 여러 CLI를 부르는데, 보드 잠금은 '같은 actor 재잡기'를 통과시킨다.
+# 그래서 같은 자원(파일)을 가리키는 카드가 동시에 돌면 충돌한다 → 자원별 잠금으로 순서를 보장한다.
+_RES_LOCKS = {}
+_RES_LOCKS_GUARD = threading.Lock()
+
+
+def resource_lock(resource):
+    with _RES_LOCKS_GUARD:
+        lk = _RES_LOCKS.get(resource)
+        if lk is None:
+            lk = threading.Lock()
+            _RES_LOCKS[resource] = lk
+        return lk
+
+
+def run_parallel(cfg, project, actor, roster, workdir, rule, timeout, plan, max_concurrent):
+    sem = threading.Semaphore(max_concurrent)
+    results = []
+    rlock = threading.Lock()
+    threads = []
+
+    def go(card, worker):
+        resource = card.get("resource") or card.get("title") or card["id"]
+        rl = resource_lock(resource)
+        with rl:                       # 같은 파일 카드는 한 번에 하나만(충돌 방지)
+            sem.acquire()              # 동시 실행 수 상한
+            try:
+                res = process_card(cfg, project, actor, card, worker,
+                                   workdir, rule, timeout, label=card.get("assignee") or "")
+            finally:
+                sem.release()
+        with rlock:
+            results.append(res)
+
+    for card in plan:
+        who = card.get("assignee")
+        worker = roster.get(who)
+        if not worker:
+            say("  ↷ %s — 담당 '%s' 의 CLI를 못 찾아 건너뜁니다(설정 작업.담당 확인)." % (card.get("title"), who))
+            api(cfg, "log", {"project": project, "actor": actor,
+                             "text": "%s 건너뜀 — 담당 %s CLI 없음" % (card["id"], who)})
+            continue
+        t = threading.Thread(target=go, args=(card, worker))
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+    return sum(1 for r in results if r in ("done", "fail"))
 
 
 # ---------------------------------------------------------------- 한 바퀴 (밀린 할일 카드 처리)
 PRI_ORDER = {"높음": 0, "보통": 1, "낮음": 2}
 
 
-def one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout):
+def one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout, max_concurrent=1):
     r = api(cfg, "card_list", {"project": project})
     if not r.get("ok"):
-        print("✗ 카드 목록 실패: %s" % r.get("error"))
+        say("✗ 카드 목록 실패: %s" % r.get("error"))
         return 0
     todo = [c for c in r.get("cards", []) if c.get("status") == "할일"]
     todo.sort(key=lambda c: (PRI_ORDER.get(c.get("priority"), 1), c.get("created", "")))
 
     if not todo:
-        print("  · 처리할 '할일' 카드가 없습니다.")
+        say("  · 처리할 '할일' 카드가 없습니다.")
         return 0
 
     plan = todo[:max_cards]
-    print("  예상: %d개 카드 처리 (할일 %d개 중 상한 %d)" % (len(plan), len(todo), max_cards))
+
+    # 병렬: 카드가 2개 이상이고 최대동시>1 이면 동시에 처리
+    if max_concurrent and max_concurrent > 1 and len(plan) > 1:
+        say("  예상: %d개 카드 처리 — 한 번에 최대 %d개 동시 (할일 %d개 중 상한 %d)"
+            % (len(plan), max_concurrent, len(todo), max_cards))
+        return run_parallel(cfg, project, actor, roster, workdir, rule, timeout, plan, max_concurrent)
+
+    # 순차
+    say("  예상: %d개 카드 처리 (할일 %d개 중 상한 %d)" % (len(plan), len(todo), max_cards))
     done = 0
     for card in plan:
         who = card.get("assignee")
         worker = roster.get(who)
         if not worker:
-            print("  ----- %s -----  ↷ 담당 '%s' 의 CLI를 못 찾아 건너뜁니다(설정 작업.담당 확인)." % (card.get("title"), who))
+            say("  ----- %s -----  ↷ 담당 '%s' 의 CLI를 못 찾아 건너뜁니다(설정 작업.담당 확인)." % (card.get("title"), who))
             api(cfg, "log", {"project": project, "actor": actor, "text": "%s 건너뜀 — 담당 %s CLI 없음" % (card["id"], who)})
             continue
         result = process_card(cfg, project, actor, card, worker, workdir, rule, timeout)
@@ -314,6 +402,8 @@ def main():
     max_cards = int(work.get("최대카드") or 5)
     timeout = int(work.get("카드제한초") or 0) or None
     precheck = work.get("사전검증", True) is not False
+    parallel = work.get("병렬") is True
+    max_concurrent = max(1, int(work.get("최대동시") or 3)) if parallel else 1
 
     # 담당 로스터: 설정 작업.담당 → {이름: worker}. CLI가 PATH에 있어야 참가.
     roster = {}
@@ -366,6 +456,8 @@ def main():
     print(" 작업 드라이버 시작 — 프로젝트: %s · 나: %s · 모드: %s" % (project, actor, mode))
     print(" 담당: %s" % ", ".join("%s(%s)" % (n, w["cli"]) for n, w in roster.items()))
     print(" 작업폴더: %s" % workdir)
+    if parallel:
+        print(" 병렬 실행 — 한 번에 최대 %d개 카드를 동시에 처리합니다(같은 파일은 순서대로)." % max_concurrent)
     print(" 한 바퀴 최대 %d개 카드 처리 (상한)" % max_cards)
     print(" ⚠ 담당 CLI는 파일쓰기 권한으로 이 폴더에서 돕니다. 중요한 원본이 있으면 먼저 백업하세요.")
     print("==================================================")
@@ -381,12 +473,12 @@ def main():
         print(" watch 모드 — %d초마다 새 할일 카드를 확인합니다. 멈추려면 Ctrl+C." % POLL_SEC)
         try:
             while True:
-                one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout)
+                one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout, max_concurrent)
                 time.sleep(POLL_SEC)
         except KeyboardInterrupt:
             print("\n== 멈춤. ==")
     else:
-        n = one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout)
+        n = one_pass(cfg, project, actor, roster, workdir, rule, max_cards, timeout, max_concurrent)
         print("\n== 끝. 이번 바퀴에 %d개 카드를 처리했습니다. 앱 '작업보드'·'작업일지' 탭에서 확인하세요. ==" % n)
 
 

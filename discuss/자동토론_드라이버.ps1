@@ -96,7 +96,7 @@ function Get-Thread {
     Write-Host ("  ✗ 목록 실패: {0}" -f $j.error) -ForegroundColor Red
     return $null
   }
-  return @($j.items)
+  return ,@($j.items)
 }
 
 function Write-Prompt($p, $round, $items) {

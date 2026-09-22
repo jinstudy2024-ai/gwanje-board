@@ -162,14 +162,14 @@ def pretty(r):
                        % (c.get("id"), c.get("status"), c.get("priority"),
                           c.get("title"), c.get("assignee"), ("· " + c["resource"]) if c.get("resource") else ""))
         return "\n".join(out)
-    if "items" in r:  # discuss_list / request_list
+    if "items" in r:  # discuss_list
         out = ["● 항목 %d개" % len(r["items"])]
         for it in r["items"]:
             if "text" in it:  # 토론
                 pfx = ("  ↳ " if it.get("parent") else "  ")
                 out.append("%s[%s] %s: %s  (%s)" % (pfx, it.get("id"), it.get("actor"), it.get("text"), it.get("time")))
-            else:  # 수거요청
-                out.append("  [%s] %s / %s / %s / %s" % (it.get("id"), it.get("status"), it.get("donor"), it.get("items"), it.get("wish_date")))
+            else:  # 토론 외 항목 (범용 대비 표시)
+                out.append("  " + json.dumps(it, ensure_ascii=False))
         return "\n".join(out)
     if "entries" in r:  # log_list
         out = ["● 일지 %d줄" % r.get("count", len(r["entries"]))]
